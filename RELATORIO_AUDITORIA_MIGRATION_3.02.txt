@@ -1,0 +1,50 @@
+AUDITORIA DE MIGRATION — MUNAY AGENDA PRO 3.02
+
+1. OBJETIVO
+Validar e corrigir a migration 001_init.sql para compatibilidade total com PostgreSQL/Neon, eliminando o erro 42P17 (functions in index expression must be marked IMMUTABLE).
+
+2. CAUSA RAIZ IDENTIFICADA
+O índice problemático era o índice funcional de clientes por nome + WhatsApp.
+Em versões anteriores, ele utilizava função não-imutável em expressão de índice (ex.: unaccent(name) combinado com lower(...), e possivelmente normalização adicional).
+No PostgreSQL/Neon, funções usadas em CREATE INDEX expression precisam ser IMMUTABLE.
+
+3. CORREÇÃO APLICADA NA 3.02
+O índice foi simplificado para uma expressão compatível com Neon:
+CREATE INDEX IF NOT EXISTS idx_clients_name_whatsapp ON clients((lower(name)), whatsapp);
+
+4. RESULTADO DA AUDITORIA DO ARQUIVO migrations/001_init.sql
+- Extensões: pgcrypto e unaccent carregadas sem problema.
+- Tabelas: sem incompatibilidades com Neon.
+- ALTER TABLE IF NOT EXISTS: compatíveis.
+- Índices comuns: compatíveis.
+- Índice funcional revisado: agora compatível com Neon/PostgreSQL.
+
+5. VALIDAÇÃO EXECUTADA
+Foi criado um banco temporário vazio no próprio PostgreSQL remoto e executado:
+- npm run migrate
+Resultado:
+- Migrações executadas com sucesso
+- Tabelas criadas com sucesso
+- Índices criados com sucesso
+
+6. TABELAS VALIDADAS NO BANCO VAZIO
+admin_users
+app_settings
+appointment_logs
+appointments
+blocked_slots
+clients
+logs_sistema
+services
+
+7. ÍNDICES VALIDADOS NO BANCO VAZIO
+idx_appointments_date
+idx_appointments_payment_received
+idx_appointments_status
+idx_blocked_slots_date
+idx_clients_name_whatsapp
+idx_clients_whatsapp
+idx_logs_sistema_context
+
+8. VERSÃO ENTREGUE
+Munay Agenda Pro 3.02

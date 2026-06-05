@@ -1,0 +1,238 @@
+RELATÓRIO AUDITORIA GOOGLE SYNC 3.03
+
+Agendamento auditado: aaa437d7-5e65-4cee-81ed-451e0dd9c89e
+Tipo bruto de appointment_date: object
+Valor bruto de appointment_date: Tue Jun 02 2026 00:00:00 GMT+0000 (Coordinated Universal Time)
+Calendar ID: primary
+
+CAUSA RAIZ IDENTIFICADA
+O payload real antigo concatenava um objeto Date diretamente na string ISO, gerando valores inválidos como "Wed Jun 03 2026 ...T09:00:00-03:00". O Google rejeita esse formato com Bad Request.
+
+VALIDAÇÃO PAYLOAD TESTE
+{
+  "valid": true,
+  "errors": [],
+  "calendarId": "primary",
+  "requiredFields": {
+    "summary": "[Teste de Integração] - Munay Agenda Pro",
+    "description": "Cliente: Munay Agenda Pro\nWhatsApp: icaro.munay77@gmail.com\nPagamento: Teste\nObservações: Evento temporário criado pelo botão Testar conexão Google.",
+    "startDateTime": "2026-06-02T03:52:18-03:00",
+    "endDateTime": "2026-06-02T03:57:18-03:00",
+    "timeZone": "America/Sao_Paulo",
+    "calendarId": "primary"
+  }
+}
+
+VALIDAÇÃO PAYLOAD REAL CORRIGIDO
+{
+  "valid": true,
+  "errors": [],
+  "calendarId": "primary",
+  "requiredFields": {
+    "summary": "[Conversa Terapêutica] - Google teste agenda",
+    "description": "Cliente: Google teste agenda\nWhatsApp: 5551993971220\nPagamento: PIX\nObservações: Sem observações.",
+    "startDateTime": "2026-06-02T10:00:00-03:00",
+    "endDateTime": "2026-06-02T11:30:00-03:00",
+    "timeZone": "America/Sao_Paulo",
+    "calendarId": "primary"
+  }
+}
+
+VALIDAÇÃO PAYLOAD REAL LEGADO (QUEBRADO)
+{
+  "valid": false,
+  "errors": [
+    "Invalid start time",
+    "Invalid end time"
+  ],
+  "calendarId": "primary",
+  "requiredFields": {
+    "summary": "[Conversa Terapêutica] - Google teste agenda",
+    "description": "Cliente: Google teste agenda\nWhatsApp: 5551993971220\nPagamento: PIX\nObservações: Sem observações.",
+    "startDateTime": "Tue Jun 02 2026 00:00:00 GMT+0000 (Coordinated Universal Time)T10:00:00-03:00",
+    "endDateTime": "Tue Jun 02 2026 00:00:00 GMT+0000 (Coordinated Universal Time)T11:30:00-03:00",
+    "timeZone": "America/Sao_Paulo",
+    "calendarId": "primary"
+  }
+}
+
+DIFERENÇAS TESTE VS REAL CORRIGIDO
+{
+  "onlyInA": [],
+  "onlyInB": [],
+  "changed": [
+    {
+      "field": "description",
+      "aValue": "Cliente: Munay Agenda Pro\nWhatsApp: icaro.munay77@gmail.com\nPagamento: Teste\nObservações: Evento temporário criado pelo botão Testar conexão Google.",
+      "bValue": "Cliente: Google teste agenda\nWhatsApp: 5551993971220\nPagamento: PIX\nObservações: Sem observações."
+    },
+    {
+      "field": "end",
+      "aValue": {
+        "dateTime": "2026-06-02T03:57:18-03:00",
+        "timeZone": "America/Sao_Paulo"
+      },
+      "bValue": {
+        "dateTime": "2026-06-02T11:30:00-03:00",
+        "timeZone": "America/Sao_Paulo"
+      }
+    },
+    {
+      "field": "end.dateTime",
+      "aValue": "2026-06-02T03:57:18-03:00",
+      "bValue": "2026-06-02T11:30:00-03:00"
+    },
+    {
+      "field": "start",
+      "aValue": {
+        "dateTime": "2026-06-02T03:52:18-03:00",
+        "timeZone": "America/Sao_Paulo"
+      },
+      "bValue": {
+        "dateTime": "2026-06-02T10:00:00-03:00",
+        "timeZone": "America/Sao_Paulo"
+      }
+    },
+    {
+      "field": "start.dateTime",
+      "aValue": "2026-06-02T03:52:18-03:00",
+      "bValue": "2026-06-02T10:00:00-03:00"
+    },
+    {
+      "field": "summary",
+      "aValue": "[Teste de Integração] - Munay Agenda Pro",
+      "bValue": "[Conversa Terapêutica] - Google teste agenda"
+    }
+  ]
+}
+
+DIFERENÇAS LEGADO VS CORRIGIDO
+{
+  "onlyInA": [],
+  "onlyInB": [],
+  "changed": [
+    {
+      "field": "end",
+      "aValue": {
+        "dateTime": "Tue Jun 02 2026 00:00:00 GMT+0000 (Coordinated Universal Time)T11:30:00-03:00",
+        "timeZone": "America/Sao_Paulo"
+      },
+      "bValue": {
+        "dateTime": "2026-06-02T11:30:00-03:00",
+        "timeZone": "America/Sao_Paulo"
+      }
+    },
+    {
+      "field": "end.dateTime",
+      "aValue": "Tue Jun 02 2026 00:00:00 GMT+0000 (Coordinated Universal Time)T11:30:00-03:00",
+      "bValue": "2026-06-02T11:30:00-03:00"
+    },
+    {
+      "field": "start",
+      "aValue": {
+        "dateTime": "Tue Jun 02 2026 00:00:00 GMT+0000 (Coordinated Universal Time)T10:00:00-03:00",
+        "timeZone": "America/Sao_Paulo"
+      },
+      "bValue": {
+        "dateTime": "2026-06-02T10:00:00-03:00",
+        "timeZone": "America/Sao_Paulo"
+      }
+    },
+    {
+      "field": "start.dateTime",
+      "aValue": "Tue Jun 02 2026 00:00:00 GMT+0000 (Coordinated Universal Time)T10:00:00-03:00",
+      "bValue": "2026-06-02T10:00:00-03:00"
+    }
+  ]
+}
+
+PAYLOAD TESTE
+{
+  "summary": "[Teste de Integração] - Munay Agenda Pro",
+  "description": "Cliente: Munay Agenda Pro\nWhatsApp: icaro.munay77@gmail.com\nPagamento: Teste\nObservações: Evento temporário criado pelo botão Testar conexão Google.",
+  "start": {
+    "dateTime": "2026-06-02T03:52:18-03:00",
+    "timeZone": "America/Sao_Paulo"
+  },
+  "end": {
+    "dateTime": "2026-06-02T03:57:18-03:00",
+    "timeZone": "America/Sao_Paulo"
+  }
+}
+
+PAYLOAD REAL CORRIGIDO
+{
+  "summary": "[Conversa Terapêutica] - Google teste agenda",
+  "description": "Cliente: Google teste agenda\nWhatsApp: 5551993971220\nPagamento: PIX\nObservações: Sem observações.",
+  "start": {
+    "dateTime": "2026-06-02T10:00:00-03:00",
+    "timeZone": "America/Sao_Paulo"
+  },
+  "end": {
+    "dateTime": "2026-06-02T11:30:00-03:00",
+    "timeZone": "America/Sao_Paulo"
+  }
+}
+
+PROVA DE CRIAÇÃO/REMOÇÃO COM PAYLOAD REAL CORRIGIDO
+{
+  "created": {
+    "status": 200,
+    "statusText": "OK",
+    "headers": {
+      "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+      "content-encoding": "gzip",
+      "content-type": "application/json; charset=UTF-8",
+      "date": "Tue, 02 Jun 2026 06:42:18 GMT",
+      "etag": "\"3560765077725502\"",
+      "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+      "pragma": "no-cache",
+      "server": "ESF",
+      "transfer-encoding": "chunked",
+      "vary": "Origin, X-Origin, Referer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "x-l2-request-path": "l2-managed-14",
+      "x-xss-protection": "0"
+    },
+    "data": {
+      "kind": "calendar#event",
+      "etag": "\"3560765077725502\"",
+      "id": "0p2lih9brtd53ofkpkm56cdke0",
+      "status": "confirmed",
+      "htmlLink": "https://www.google.com/calendar/event?eid=MHAybGloOWJydGQ1M29ma3BrbTU2Y2RrZTAgaWNhcm8ubXVuYXk3N0Bt",
+      "created": "2026-06-02T06:42:18.000Z",
+      "updated": "2026-06-02T06:42:18.862Z",
+      "summary": "[Conversa Terapêutica] - Google teste agenda",
+      "description": "Cliente: Google teste agenda\nWhatsApp: 5551993971220\nPagamento: PIX\nObservações: Sem observações.",
+      "creator": {
+        "email": "icaro.munay77@gmail.com",
+        "self": true
+      },
+      "organizer": {
+        "email": "icaro.munay77@gmail.com",
+        "self": true
+      },
+      "start": {
+        "dateTime": "2026-06-02T10:00:00-03:00",
+        "timeZone": "America/Sao_Paulo"
+      },
+      "end": {
+        "dateTime": "2026-06-02T11:30:00-03:00",
+        "timeZone": "America/Sao_Paulo"
+      },
+      "iCalUID": "0p2lih9brtd53ofkpkm56cdke0@google.com",
+      "sequence": 0,
+      "reminders": {
+        "useDefault": true
+      },
+      "eventType": "default"
+    }
+  },
+  "removed": {
+    "status": 204,
+    "statusText": "No Content",
+    "data": {},
+    "eventId": "0p2lih9brtd53ofkpkm56cdke0"
+  }
+}

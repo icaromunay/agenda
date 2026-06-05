@@ -1,0 +1,103 @@
+RELATÓRIO TÉCNICO MUNAY AGENDA PRO 3.03
+
+1. ALTERAÇÃO 1 — BOTÃO EXCLUIR
+- Causa raiz identificada no backend DELETE /api/admin/appointments/:id.
+- O código apagava o agendamento e em seguida tentava gravar log em appointment_logs com FK para appointments.
+- Resultado: violação de chave estrangeira e o botão “Excluir” aparentava não funcionar.
+- Correção aplicada:
+  - remoção do log pós-delete em appointment_logs;
+  - exclusão explícita de appointment_logs antes de apagar appointments;
+  - tratamento de erro no front-end public/assets/admin.js para alertar falhas reais.
+- Validação executada:
+  - criado agendamento temporário;
+  - chamada HTTP DELETE /api/admin/appointments/:id retornou 200;
+  - conferência em banco: remainingAppointments = 0.
+
+2. ALTERAÇÃO 2 — GOOGLE CALENDAR
+- OAuth, refresh token, access token, permissões e calendarId já estavam válidos.
+- A falha estava no payload real do atendimento.
+- Causa raiz definitiva:
+  - appointment.appointment_date chegava do PostgreSQL como objeto Date;
+  - a função toIso concatenava esse objeto diretamente na string;
+  - isso gerava start.dateTime e end.dateTime inválidos, por exemplo:
+    Tue Jun 02 2026 00:00:00 GMT+0000 (Coordinated Universal Time)T10:00:00-03:00
+  - o Google rejeitava esse payload com Bad Request.
+- Correção aplicada:
+  - normalização de datas com toDateOnlyString() antes de montar o ISO;
+  - payload final obrigatório no formato:
+    YYYY-MM-DDTHH:mm:ss-03:00
+  - timezone fixado em America/Sao_Paulo.
+
+3. AUDITORIA E OBSERVABILIDADE ADICIONADAS
+- createCalendarEvent() agora registra [GOOGLE APPOINTMENT PAYLOAD].
+- updateCalendarEvent() agora registra [GOOGLE APPOINTMENT PAYLOAD].
+- createTestEvent() agora registra [GOOGLE TEST PAYLOAD].
+- erros completos agora registram [GOOGLE FULL ERROR].
+- validação obrigatória antes do envio ao Google:
+  - summary
+  - description
+  - start.dateTime
+  - end.dateTime
+  - timeZone
+  - calendarId
+
+4. PERSISTÊNCIA NO BANCO
+Foram adicionadas/validadas na tabela appointments:
+- google_error_details TEXT
+- google_payload_json JSONB
+- google_response_json JSONB
+
+5. ENDPOINT DE DIAGNÓSTICO
+Implementado:
+- GET /api/google/debug-appointment/:id
+Retorna:
+- appointment
+- payload
+- validation
+- comparison
+- googleResponse ou googleError
+Sem alterar status do agendamento.
+
+6. AJUSTES DE UI
+- cards agora exibem apenas uma mensagem:
+  - Erro Google: ...
+  ou
+  - Google sincronizado
+  ou
+  - Google não sincronizado
+- nunca mais exibem sucesso e erro simultaneamente.
+
+7. TESTE AUTOMÁTICO
+Arquivo criado:
+- tmp_google_audit_3_03.js
+Fluxo executado:
+- comparou payload de teste vs payload real;
+- simulou payload legado quebrado vs payload corrigido;
+- identificou exatamente os campos causadores:
+  - start.dateTime
+  - end.dateTime
+- provou criação e remoção real de evento Google com payload corrigido.
+
+8. VALIDAÇÕES EXECUTADAS
+- node --check em src/server.js
+- node --check em src/services/googleCalendarService.js
+- node --check em public/assets/admin.js
+- health check local: /api/health => {"ok":true}
+- npm run migrate validado em banco vazio temporário com sucesso
+- endpoint debug de agendamento testado com sucesso
+- exclusão HTTP de agendamento testada com sucesso
+
+9. ARQUIVOS PRINCIPAIS ALTERADOS
+- src/server.js
+- src/services/googleCalendarService.js
+- public/assets/admin.js
+- migrations/001_init.sql
+- package.json
+- RELATORIO_AUDITORIA_GOOGLE_SYNC_3.03.txt
+- tmp_google_audit_3_03.js
+
+10. CONCLUSÃO
+- Botão Excluir corrigido.
+- Campo causador do Bad Request identificado definitivamente.
+- Payload real corrigido e validado.
+- Sincronização Google funcional com payload real.

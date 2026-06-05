@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Ícarõ Munay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/admin.css">
+</head>
+<body>
+  <div class="login-screen" id="loginScreen">
+    <div class="login-card">
+      <div class="logo">✦ Munay Admin</div>
+      <h1>Área Administrativa</h1>
+      <p>Senha padrão inicial: <strong>3001</strong></p>
+      <input id="loginPassword" type="password" placeholder="Digite sua senha" maxlength="30">
+      <button id="loginButton" type="button">Entrar</button>
+      <div class="error" id="loginError"></div>
+    </div>
+  </div>
+
+  <div class="shell hidden" id="appShell">
+    <aside class="sidebar">
+      <div class="brand">✦ Munay</div>
+      <nav>
+        <button class="nav-btn active" data-view="dashboard">🏠 Dashboard</button>
+        <button class="nav-btn" data-view="appointments">📅 Agendamentos</button>
+        <button class="nav-btn" data-view="clients">👥 Clientes</button>
+        <button class="nav-btn" data-view="services">🌿 Serviços</button>
+        <button class="nav-btn" data-view="blocks">🚫 Bloqueios</button>
+        <button class="nav-btn" data-view="reports">📊 Relatórios</button>
+        <button class="nav-btn" data-view="settings">⚙️ Configurações</button>
+        <button class="nav-btn" data-view="security">🔒 Segurança</button>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <h2 id="viewTitle">Dashboard</h2>
+          <p id="viewSubtitle">Visão geral do sistema</p>
+        </div>
+        <button class="ghost-btn" id="refreshButton" type="button">Atualizar</button>
+      </header>
+
+      <section class="view active" id="view-dashboard">
+        <div class="cards-grid" id="dashboardCards"></div>
+        <div class="split-grid">
+          <div class="panel"><h3>Próximos atendimentos</h3><div id="dashboardCalendar"></div></div>
+          <div class="panel"><h3>Serviços mais vendidos</h3><div id="dashboardServices"></div></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-appointments">
+        <div class="toolbar three">
+          <input id="appointmentSearch" placeholder="Pesquisar cliente, WhatsApp ou serviço">
+          <select id="appointmentStatus"><option value="">Todos os status</option><option value="pendente">Pendente</option><option value="aguardando pagamento">Aguardando pagamento</option><option value="confirmado">Confirmado</option><option value="cancelado">Cancelado</option><option value="concluido">Concluído</option></select>
+          <button class="ghost-btn" id="loadAppointmentsButton" type="button">Buscar</button>
+        </div>
+        <div class="panel"><div id="appointmentsList"></div></div>
+      </section>
+
+      <section class="view" id="view-clients">
+        <div class="panel"><h3>Clientes</h3><div id="clientsList"></div></div>
+      </section>
+
+      <section class="view" id="view-services">
+        <div class="panel">
+          <h3>Novo serviço</h3>
+          <form id="serviceForm" class="form-grid">
+            <input name="name" placeholder="Nome do serviço" required>
+            <input name="description" placeholder="Descrição" required>
+            <input name="duration_minutes" type="number" placeholder="Duração (min)" required>
+            <input name="price_pix" type="number" step="0.01" placeholder="Valor PIX" required>
+            <input name="price_card" type="number" step="0.01" placeholder="Valor cartão" required>
+            <input name="price_installment" placeholder="Valor parcelado" required>
+            <input name="min_hour" type="time" placeholder="Horário mínimo" required>
+            <input name="max_hour" type="time" placeholder="Horário máximo" required>
+            <input name="sort_order" type="number" placeholder="Ordem" value="0" required>
+            <label class="check-inline"><input name="active" type="checkbox" checked> Ativo</label>
+            <button type="submit">Salvar serviço</button>
+          </form>
+        </div>
+        <div class="panel"><h3>Serviços cadastrados</h3><div id="servicesList"></div></div>
+      </section>
+
+      <section class="view" id="view-blocks">
+        <div class="panel">
+          <h3>Novo bloqueio</h3>
+          <form id="blockForm" class="form-grid small">
+            <input name="date" type="date" required>
+            <input name="start_minutes" type="number" placeholder="Início em minutos" required>
+            <input name="end_minutes" type="number" placeholder="Fim em minutos" required>
+            <input name="reason" placeholder="Motivo" required>
+            <button type="submit">Criar bloqueio</button>
+          </form>
+        </div>
+        <div class="panel"><h3>Bloqueios</h3><div id="blocksList"></div></div>
+      </section>
+
+      <section class="view" id="view-reports">
+        <div class="toolbar two">
+          <input id="reportStart" type="date">
+          <input id="reportEnd" type="date">
+          <button class="ghost-btn" id="loadReportsButton" type="button">Gerar</button>
+        </div>
+        <div class="split-grid">
+          <div class="panel"><h3>Status</h3><div id="reportStatus"></div></div>
+          <div class="panel"><h3>Serviços</h3><div id="reportServices"></div></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-settings">
+        <div class="panel">
+          <h3>Configurações gerais</h3>
+          <form id="settingsForm" class="form-grid">
+            <input name="brand_name" placeholder="Marca" required>
+            <input name="title" placeholder="Título público" required>
+            <input name="subtitle" placeholder="Subtítulo público" required>
+            <input name="therapist_name" placeholder="Nome do terapeuta" required>
+            <input name="therapist_whatsapp" placeholder="WhatsApp principal" required>
+            <input name="notifications_whatsapp" placeholder="WhatsApp notificações" required>
+            <input name="footer_link" placeholder="Link do rodapé" required>
+            <input name="logo_url" placeholder="Logo URL">
+            <input name="google_email" placeholder="Email Google">
+            <input name="google_calendar_id" placeholder="Calendar ID">
+            <input name="google_client_id" placeholder="Google Client ID">
+            <input name="google_client_secret" placeholder="Google Client Secret">
+            <input name="google_redirect_uri" placeholder="Redirect URI">
+            <input name="google_refresh_token" placeholder="Google Refresh Token">
+            <input name="database_url" placeholder="Database URL (salva e requer reinício)">
+            <input name="work_start" type="time" required>
+            <input name="work_end" type="time" required>
+            <input name="slot_interval" type="number" min="5" required>
+            <textarea name="confirmation_message" rows="5" placeholder="Mensagem de confirmação"></textarea>
+            <textarea name="reminder_message" rows="4" placeholder="Mensagem de lembrete"></textarea>
+            <div class="checkbox-group">
+              <label><input name="notification_immediate" type="checkbox"> Avisar imediatamente</label>
+              <label><input name="notification_24h" type="checkbox"> Avisar 24h antes</label>
+              <label><input name="notification_1h" type="checkbox"> Avisar 1h antes</label>
+              <label><input name="notification_15m" type="checkbox"> Avisar 15 min antes</label>
+              <label><input name="notify_email" type="checkbox"> Avisar por e-mail</label>
+              <label><input name="notify_push" type="checkbox"> Avisar por push</label>
+            </div>
+            <button type="submit">Salvar configurações</button>
+          </form>
+          <div class="toolbar three compact">
+            <button class="ghost-btn" id="connectGoogleButton" type="button">Conectar Google</button>
+            <button class="ghost-btn" id="disconnectGoogleButton" type="button">Desconectar Google</button>
+            <button class="ghost-btn" id="testGoogleButton" type="button">Testar conexão Google</button>
+          </div>
+          <div id="settingsStatus" class="status-box"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-security">
+        <div class="panel">
+          <h3>Alterar senha administrativa</h3>
+          <form id="passwordForm" class="form-grid small">
+            <input name="currentPassword" type="password" placeholder="Senha atual" required>
+            <input name="newPassword" type="password" placeholder="Nova senha" required>
+            <button type="submit">Alterar senha</button>
+          </form>
+          <div id="passwordStatus"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/assets/admin.js"></script>
+</body>
+</html>

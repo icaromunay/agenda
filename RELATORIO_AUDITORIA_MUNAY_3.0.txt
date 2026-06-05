@@ -1,0 +1,102 @@
+AUDITORIA E CORREÇÕES PRIORITÁRIAS — MUNAY AGENDA PRO 3.0
+
+1) PROBLEMAS ENCONTRADOS
+- Google Calendar conectava via OAuth, mas o sistema não expunha diagnóstico suficiente para descobrir por que os eventos não apareciam.
+- O botão “Testar conexão Google” apenas consultava status; não criava evento real.
+- Clientes eram consolidados por WhatsApp, mesmo com nomes diferentes.
+- Agendamentos do admin eram ordenados do mais distante para o mais próximo.
+- Dashboard era apenas informativo; não havia painel operacional por clique.
+- Lista de agendamentos tinha pouca hierarquia visual e baixo destaque para nome/data/horário/status.
+- Fluxo de editar/excluir dependia de onclick inline e prompts frágeis.
+- Calendário público tinha risco de contraste ruim em alguns navegadores por uso de botão sem fundo explícito.
+- Bloqueios exigiam minutos manuais e criação unitária, sem repetição.
+- Filtros administrativos eram limitados; faltavam presets rápidos e filtro pago/não pago.
+
+2) CAUSAS RAIZ IDENTIFICADAS
+- Google sync: o fluxo já chamava sincronização, mas faltavam persistência de erro/resposta, endpoint de debug e teste real; falhas do Google podiam ficar “invisíveis” no painel. Principais pontos reforçados em src/server.js: 150-197, 338-403, 706-760, 972-1123, 1140-1232 e src/services/googleCalendarService.js completo.
+- Clientes duplicados: o código anterior buscava cliente apenas por WhatsApp e atualizava o nome no mesmo registro, sobrescrevendo a identidade anterior. Evidência do código antigo em backup_before_audit/server.js (bloco de criação pública) e correção em src/server.js: 239-280 e 606-688.
+- Ordenação invertida: a consulta antiga usava ORDER BY appointment_date DESC, start_minutes DESC. Correção em src/server.js: 734-760.
+- Dashboard sem ações: renderização antiga só imprimia lista textual, sem modal operacional. Correção em public/admin.html e public/assets/admin.js.
+- Editar/excluir frágeis: uso de onclick inline com dados serializados em HTML e prompts. Isso aumentava chance de quebra quando havia aspas/notas. Correção por event delegation + modal em public/assets/admin.js.
+- Calendário público ilegível: estilos antigos não fixavam fundo legível para o botão do dia; em alguns navegadores o botão branco podia conflitar com texto claro. Correção em public/assets/styles.css.
+- Bloqueios lentos: formulário antigo exigia start_minutes/end_minutes e só criava um registro por vez. Correção com hora inicial/final, categoria e repetição em src/server.js e public/admin.html.
+
+3) CORREÇÕES APLICADAS
+- Google Calendar:
+  * Persistência de estado de sincronização por atendimento: google_sync_status, google_sync_error, google_last_sync_at, google_last_response.
+  * Persistência global de diagnóstico: google_last_error e google_last_response em app_settings.
+  * Logs detalhados de create/update/delete/teste/sync com resposta completa da Google API.
+  * Endpoint GET /api/google/debug.
+  * Endpoint POST /api/google/test-create-event criando evento temporário de 5 minutos e removendo em seguida.
+  * Ajuste do timezone do evento de teste para enviar dateTime no fuso America/Sao_Paulo em vez de ISO UTC com sufixo Z.
+  * Erro amigável retornado ao admin via friendlyGoogleError.
+  * Confirmação de que a criação NÃO depende do status confirmado: o fluxo continua sincronizando em create, confirm, update e delete/cancel.
+- Google button:
+  * “Testar conexão Google” agora faz teste real de criação de evento e mostra sucesso/erro detalhado.
+- Clientes:
+  * Nova regra padrão: correspondência por nome + WhatsApp.
+  * Mesmo WhatsApp com nome diferente gera novo cliente.
+  * Endpoint público /api/public/client-check e mensagem visual “Cliente já existente” / “Criar novo cliente”.
+- Agendamentos:
+  * Ordenação crescente por data/hora.
+  * Modal operacional com confirmar, concluir, reagendar, excluir, abrir WhatsApp e ver detalhes.
+  * Melhor contraste, badges e destaque dourado para nome/data/horário.
+  * Filtros rápidos: hoje, amanhã, esta semana, confirmados, pendentes, pagos, não pagos, além de busca instantânea.
+- Bloqueios:
+  * Formulário com data, hora inicial, hora final, categoria e repetição none/daily/weekly/monthly.
+  * Geração automática em lote.
+  * Botões rápidos de hora de 08:00 a 20:00.
+- Público:
+  * Calendário com fundo explícito e contraste alto.
+  * Aviso de cliente existente/novo logo abaixo do campo WhatsApp.
+
+4) ARQUIVOS ALTERADOS
+- src/server.js
+- src/services/googleCalendarService.js
+- migrations/001_init.sql
+- public/admin.html
+- public/assets/admin.js
+- public/assets/admin.css
+- public/index.html
+- public/assets/app.js
+- public/assets/styles.css
+- tmp_google_service_test.js
+
+5) MELHORIAS IMPLEMENTADAS
+- Observabilidade real da integração Google.
+- UX operacional no dashboard e nos agendamentos.
+- Menos risco de erro por inline onclick.
+- Melhor acessibilidade visual no calendário público.
+- Criação de bloqueios muito mais rápida.
+- Filtros administrativos úteis para rotina diária.
+- Base de clientes sem sobrescrever pessoas com mesmo WhatsApp e nomes diferentes.
+
+6) TESTES EXECUTADOS
+- Validação de sintaxe:
+  * node --check src/server.js
+  * node --check public/assets/admin.js
+  * node --check public/assets/app.js
+  * node --check src/services/googleCalendarService.js
+- Teste mock do serviço Google:
+  * node tmp_google_service_test.js
+  * Validou create, update, delete, createTestEvent e erro quando a API responde sem event id.
+- Verificações estruturais com busca no código:
+  * confirmação dos novos endpoints /api/google/debug e /api/google/test-create-event
+  * confirmação de payment_received, repeat_mode, modal operacional, client-check e nova ordenação
+  * checagem da remoção do ORDER BY DESC no endpoint principal de agendamentos
+- Tentativa de smoke test do servidor:
+  * inicialização bloqueada por falha de autenticação no banco configurado (password authentication failed)
+
+7) RESULTADO FINAL
+- O sistema ficou preparado para diagnosticar a causa real de falhas do Google Calendar em produção, em vez de apenas mostrar “não sincronizado”.
+- O painel administrativo agora é operacional, não apenas informativo.
+- O cadastro público deixou de fundir clientes diferentes apenas por WhatsApp.
+- A experiência visual e de acessibilidade foi elevada tanto no admin quanto no calendário público.
+- O pacote final está pronto para download, migração e teste com banco válido.
+
+OBSERVAÇÃO IMPORTANTE
+- A credencial atual do banco Neon apresentada no histórico estava falhando por autenticação; por isso, as mudanças foram validadas por análise de código, sintaxe e mock tests, mas não por execução end-to-end contra esse banco específico.
+
+- Smoke test final com .env válido:
+  * servidor iniciado com sucesso
+  * endpoint /api/health respondeu {"ok":true}

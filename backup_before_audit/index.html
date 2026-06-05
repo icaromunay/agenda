@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agenda — Ícarõ Munay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <header>
+    <div class="logo" id="logoText">✦ Munay</div>
+    <h1 id="heroTitle">Agende sua <em>sessão</em></h1>
+    <p id="heroSubtitle">Escolha o atendimento, horário e forma de pagamento</p>
+    <div class="divider"></div>
+  </header>
+
+  <main class="container">
+    <div class="step-bar">
+      <div class="step-item active" id="si1"><span class="step-num">Passo 1</span>Serviço</div>
+      <div class="step-item" id="si2"><span class="step-num">Passo 2</span>Pagamento</div>
+      <div class="step-item" id="si3"><span class="step-num">Passo 3</span>Data & Horário</div>
+      <div class="step-item" id="si4"><span class="step-num">Passo 4</span>Confirmação</div>
+    </div>
+
+    <section class="section revealed" id="sec1">
+      <div class="section-header"><div class="section-num">1</div><div class="section-title">Escolha o serviço</div></div>
+      <div class="services-grid" id="servicesGrid"></div>
+    </section>
+
+    <section class="section" id="sec2">
+      <div class="section-header"><div class="section-num">2</div><div class="section-title">Forma de pagamento</div></div>
+      <div class="pay-opts" id="payOptions"></div>
+    </section>
+
+    <section class="section" id="sec3">
+      <div class="section-header"><div class="section-num">3</div><div class="section-title">Escolha a data e o horário</div></div>
+      <div class="calendar-box">
+        <div class="cal-nav">
+          <button id="prevMonth" type="button">‹</button>
+          <span id="calendarLabel"></span>
+          <button id="nextMonth" type="button">›</button>
+        </div>
+        <div class="cal-grid" id="calendarGrid"></div>
+        <div id="slotsArea"></div>
+      </div>
+    </section>
+
+    <section class="section" id="sec4">
+      <div class="section-header"><div class="section-num">4</div><div class="section-title">Seus dados</div></div>
+      <div class="form-box">
+        <div class="form-row">
+          <label for="clientName">Seu nome</label>
+          <input id="clientName" type="text" placeholder="Nome completo">
+        </div>
+        <div class="form-row">
+          <label for="clientWhatsapp">WhatsApp</label>
+          <input id="clientWhatsapp" type="tel" placeholder="(47) 9 9999-9999">
+        </div>
+      </div>
+      <div class="sumbox" id="summaryBox"></div>
+      <button class="btn-confirm" id="confirmButton" type="button">Confirmar agendamento</button>
+      <div class="loading-msg" id="loadingMsg">Registrando sua reserva...</div>
+      <div class="confirmation-card hidden" id="confirmationCard"></div>
+    </section>
+  </main>
+
+  <footer>
+    <div><a id="footerLink" href="https://munay.com.br" target="_blank" rel="noreferrer">munay.com.br</a> · Atendimento online · Sigilo absoluto</div>
+    <button id="adminButton" class="admin-link" type="button">ADMIN</button>
+  </footer>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>

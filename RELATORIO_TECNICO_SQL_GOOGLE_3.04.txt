@@ -1,0 +1,149 @@
+RELATÓRIO TÉCNICO – AUDITORIA CRÍTICA SQL / GOOGLE – VERSÃO 3.0.4
+
+OBJETIVO
+Eliminar o erro PostgreSQL/Neon "could not determine data type of parameter $3" no fluxo de confirmação de atendimento com sincronização Google Calendar.
+
+RESUMO EXECUTIVO
+- A comunicação com o Google Calendar estava funcionando.
+- O erro era SQL, após o retorno de sucesso do Google.
+- A query que falhava era a de UPDATE do agendamento no fluxo de UPDATE de evento já existente.
+- O parâmetro problemático era o $3.
+- Causa raiz: a query usava placeholders $1, $2, $4, $5, mas o array de parâmetros enviava também um terceiro valor `null` sem uso/tipo definido.
+- Correção aplicada: reindexação dos placeholders para sequência válida ($1, $2, $3, $4), sanitização de todos os parâmetros, logs temporários [GOOGLE DB PARAMS] e cast explícito ::jsonb.
+
+1. QUERY EXATA QUE FALHAVA
+Arquivo:
+- src/server.js
+
+Linha problemática anterior:
+- linha 515 no stack trace persistido no banco
+
+Query antiga:
+UPDATE appointments
+SET google_event_id = $2,
+    google_sync_status = 'updated',
+    google_sync_error = NULL,
+    google_error_details = NULL,
+    google_payload_json = $4::jsonb,
+    google_response_json = $5::jsonb,
+    google_last_sync_at = NOW(),
+    google_last_response = $5::jsonb,
+    updated_at = NOW()
+WHERE id = $1
+
+Parâmetros antigos enviados:
+[
+  appointment.id,
+  eventId,
+  null,
+  JSON.stringify(appointmentEventPayload),
+  JSON.stringify(updatedEvent || {})
+]
+
+PROBLEMA
+- O parâmetro $3 existia no array, mas não tinha placeholder correspondente útil na query.
+- Como esse valor era null e sem tipo explícito, o PostgreSQL/Neon gerava:
+  could not determine data type of parameter $3
+
+2. CORREÇÃO APLICADA
+Nova query corrigida em src/server.js:
+UPDATE appointments
+SET google_event_id = $2,
+    google_sync_status = 'updated',
+    google_sync_error = NULL,
+    google_error_details = NULL,
+    google_payload_json = $3::jsonb,
+    google_response_json = $4::jsonb,
+    google_last_sync_at = NOW(),
+    google_last_response = $4::jsonb,
+    updated_at = NOW()
+WHERE id = $1
+
+Novos parâmetros:
+[
+  safeDbText(appointment.id, { allowNull: false }),
+  safeDbText(eventId, { allowNull: false }),
+  safeDbJson(appointmentEventPayload, {}),
+  safeDbJson(updatedEvent, {})
+]
+
+3. PARÂMETRO QUE ERA O $3
+No código com falha, o $3 era:
+- `null`
+
+Contexto:
+- o terceiro item do array era enviado sem uso consistente na query SQL;
+- PostgreSQL não conseguiu inferir o tipo;
+- o stack trace salvo anteriormente no banco apontava exatamente para este ponto.
+
+4. PONTOS AUDITADOS QUE MANIPULAM
+Campos auditados:
+- google_event_id
+- google_error_details
+- google_payload_json
+- google_response_json
+
+Locais auditados:
+1) src/server.js – função storeAppointmentGoogleState()
+2) src/server.js – syncAppointmentWithGoogle() ramo delete
+3) src/server.js – syncAppointmentWithGoogle() ramo update
+4) src/server.js – syncAppointmentWithGoogle() ramo create
+5) migrations/001_init.sql – definição e ALTER TABLE das colunas
+
+5. MEDIDAS DE SEGURANÇA APLICADAS
+Foram adicionadas as funções:
+- safeDbText(value, { allowNull })
+- safeDbJson(value, fallback)
+- logGoogleDbParams(params)
+
+Regras aplicadas:
+- nenhum parâmetro SQL segue como undefined;
+- TEXT usa String(...) quando necessário;
+- JSONB usa sempre cast explícito ::jsonb;
+- objetos JS são serializados com JSON.stringify(...);
+- valores ausentes usam fallback explícito.
+
+6. LOGS TEMPORÁRIOS ADICIONADOS
+Antes de cada query crítica agora existe log:
+[GOOGLE DB PARAMS]
+
+Exemplo validado em execução real:
+scope: 'syncAppointmentWithGoogle.update'
+p1: appointmentId
+p2: googleEventId
+p3: payload JSON serializado
+p4: response JSON serializado
+
+7. FLUXO COMPLETO AUDITADO
+Fluxo auditado:
+confirmar atendimento
+→ criar evento Google
+→ receber resposta Google
+→ salvar Google Event ID
+→ salvar payload
+→ salvar response
+→ confirmar novamente (update do evento existente)
+→ atualizar appointment sem erro SQL
+
+8. VALIDAÇÃO PRÁTICA EXECUTADA
+Teste real executado:
+- criado agendamento temporário
+- confirm 1: criou evento Google com sucesso
+- confirm 2: atualizou o mesmo evento Google com sucesso
+- resultado final:
+  - HTTP 200
+  - action = updated
+  - google_sync_error = null
+  - google_event_id persistido
+  - google_payload_json persistido
+  - google_response_json persistido
+
+9. RESULTADO FINAL
+Status final:
+- erro SQL corrigido
+- sincronização Google operacional
+- confirmação de atendimento executando sem falha SQL
+- persistência de payload/resposta funcionando corretamente
+
+VERSÃO ENTREGUE
+- 3.0.4
