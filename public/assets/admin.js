@@ -545,7 +545,7 @@ async function loadServices() {
       <div class="item-top">
         <div>
           <h4>${esc(item.name)}</h4>
-          <div class="meta">${esc(item.description)}<br>Duração: ${esc(item.duration_minutes)} min · PIX ${esc(money(item.price_pix))}<br>Cartão ${esc(money(item.price_card))} · ${esc(item.price_installment)}<br>Faixa: ${esc(item.min_hour)} até ${esc(item.max_hour)}</div>
+          <div class="meta">${esc(item.description)}<br><strong>Turno:</strong> ${esc(item.shift_label || 'DIURNO')} · <strong>Duração:</strong> ${esc(item.duration_minutes)} min<br>PIX ${esc(money(item.price_pix))} · Cartão ${esc(money(item.price_card))} · ${esc(item.price_installment)}<br>Faixa: ${esc(item.min_hour)} até ${esc(item.max_hour)}</div>
         </div>
         ${badge(item.active ? 'confirmado' : 'cancelado')}
       </div>

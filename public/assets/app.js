@@ -97,16 +97,23 @@ function renderSettings() {
 }
 
 function renderServices() {
-  qs('servicesGrid').innerHTML = state.services.map((service) => `
+  qs('servicesGrid').innerHTML = state.services.map((service) => {
+    const shift = (service.shift_label || '').trim() || 'DIURNO';
+    return `
     <article class="service-card ${state.service?.id === service.id ? 'selected' : ''}" data-id="${service.id}">
       <div class="service-name">${service.name}</div>
       <div class="service-desc">${service.description || 'Atendimento terapêutico personalizado.'}</div>
+      <div class="service-meta">
+        <div class="service-shift">Turno: ${shift}</div>
+        <div class="service-duration">Duração da sessão: ${service.duration_minutes} min</div>
+      </div>
       <div class="service-prices">
         <div class="price-row"><span class="lbl">PIX</span><span class="val main">R$ ${Number(service.price_pix).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
         <div class="price-row"><span class="lbl">Cartão</span><span class="val">R$ ${Number(service.price_card).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
         <div class="price-row"><span class="lbl">Parcelado</span><span class="val">${service.price_installment}</span></div>
       </div>
-    </article>`).join('');
+    </article>`;
+  }).join('');
 
   document.querySelectorAll('.service-card').forEach((card) => {
     card.onclick = () => {
@@ -114,11 +121,15 @@ function renderServices() {
       state.payment = null;
       state.date = null;
       state.slot = null;
+      card.classList.add('select-flash');
       renderServices();
       renderPayments();
       renderSummary();
-      step(2);
-      revealAndScrollSection('sec2');
+      window.setTimeout(() => {
+        step(2);
+        revealAndScrollSection('sec2');
+      }, 180);
+      window.setTimeout(() => card.classList.remove('select-flash'), 320);
     };
   });
 }
@@ -158,12 +169,13 @@ function renderCalendar() {
     date.setHours(0, 0, 0, 0);
     const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     const past = date < today;
-    const available = Boolean(state.service && state.payment && availability && availability[value]?.available);
-    const canClick = !past && available;
-    html += `<button class="cal-day ${past ? 'past' : canClick ? 'avail' : 'off'} ${state.date === value ? 'selday' : ''} ${date.getTime() === today.getTime() ? 'tod' : ''}" ${canClick ? '' : 'disabled'} data-date="${value}">${day}</button>`;
+    const futureInteractive = Boolean(state.service && state.payment) && !past;
+    const knownAvailable = Boolean(availability && availability[value]?.available);
+    const className = past ? 'past' : knownAvailable ? 'avail' : 'off';
+    html += `<button class="cal-day ${className} ${state.date === value ? 'selday' : ''} ${date.getTime() === today.getTime() ? 'tod' : ''}" ${futureInteractive ? '' : 'disabled'} data-date="${value}">${day}</button>`;
   }
   qs('calendarGrid').innerHTML = html;
-  document.querySelectorAll('.cal-day.avail').forEach((btn) => {
+  document.querySelectorAll('.cal-day:not(.empty):not(.past)').forEach((btn) => {
     btn.onclick = async () => {
       state.date = btn.dataset.date;
       state.slot = null;

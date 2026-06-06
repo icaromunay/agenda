@@ -121,6 +121,10 @@
           <form id="serviceForm" class="form-grid">
             <input name="name" placeholder="Nome do serviço" required>
             <input name="description" placeholder="Descrição" required>
+            <select name="shift_label" required>
+              <option value="DIURNO">Turno: Diurno</option>
+              <option value="NOTURNO">Turno: Noturno</option>
+            </select>
             <input name="duration_minutes" type="number" placeholder="Duração (min)" required>
             <input name="price_pix" type="number" step="0.01" placeholder="Valor PIX" required>
             <input name="price_card" type="number" step="0.01" placeholder="Valor cartão" required>

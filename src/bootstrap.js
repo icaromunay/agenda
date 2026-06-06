@@ -32,20 +32,20 @@ async function seedServices(client) {
   if (count.rows[0].total > 0) return;
 
   const services = [
-    ['Conversa Terapêutica', 'Atendimento acolhedor com foco terapêutico.', 90, 97, 107, '3x R$37,00', '09:00', '18:00', 1],
-    ['Conversa Terapêutica Noite', 'Versão noturna do atendimento terapêutico.', 90, 137, 145, '3x R$53,00', '18:00', '21:00', 2],
-    ['Constelação Familiar', 'Sessão de constelação familiar.', 90, 197, 210, '3x R$77,00', '09:00', '18:00', 3],
-    ['Constelação Familiar PRIME', 'Sessão premium em horário especial.', 90, 257, 277, '3x R$98,00', '18:00', '21:00', 4],
-    ['Constelação Familiar GOLD', 'Sessão GOLD com condução aprofundada.', 90, 350, 370, '3x R$135,00', '09:00', '21:00', 5],
-    ['Ativação', 'Atendimento de ativação energética.', 60, 97, 107, '3x R$37,00', '09:00', '21:00', 6],
-    ['Reiki Quântico Xamânico', 'Sessão energética e terapêutica.', 90, 130, 139.9, '3x R$49,90', '09:00', '18:00', 7],
-    ['Divórcio Energético', 'Conversa inicial de 30 minutos + trabalho energético.', 30, 259, 275, '3x R$98,00', '09:00', '21:00', 8]
+    ['Conversa Terapêutica', 'Atendimento acolhedor com foco terapêutico.', 90, 97, 107, '3x R$37,00', 'DIURNO', '09:00', '18:00', 1],
+    ['Conversa Terapêutica Noite', 'Versão noturna do atendimento terapêutico.', 90, 137, 145, '3x R$53,00', 'NOTURNO', '18:00', '21:00', 2],
+    ['Constelação Familiar', 'Sessão de constelação familiar.', 90, 197, 210, '3x R$77,00', 'DIURNO', '09:00', '18:00', 3],
+    ['Constelação Familiar PRIME', 'Sessão premium em horário especial.', 90, 257, 277, '3x R$98,00', 'NOTURNO', '18:00', '21:00', 4],
+    ['Constelação Familiar GOLD', 'Sessão GOLD com condução aprofundada.', 90, 350, 370, '3x R$135,00', 'DIURNO', '09:00', '21:00', 5],
+    ['Ativação', 'Atendimento de ativação energética.', 60, 97, 107, '3x R$37,00', 'DIURNO', '09:00', '21:00', 6],
+    ['Reiki Quântico Xamânico', 'Sessão energética e terapêutica.', 90, 130, 139.9, '3x R$49,90', 'DIURNO', '09:00', '18:00', 7],
+    ['Divórcio Energético', 'Conversa inicial de 30 minutos + trabalho energético.', 30, 259, 275, '3x R$98,00', 'DIURNO', '09:00', '21:00', 8]
   ];
 
   for (const service of services) {
     await client.query(
-      `INSERT INTO services (name, description, duration_minutes, price_pix, price_card, price_installment, min_hour, max_hour, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      `INSERT INTO services (name, description, duration_minutes, price_pix, price_card, price_installment, shift_label, min_hour, max_hour, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       service
     );
   }
