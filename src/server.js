@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs/promises');
+const { randomUUID } = require('crypto');
 const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
@@ -228,6 +229,25 @@ function resolveMessageTemplate(template, fallback) {
 
 function moneyBRL(value) {
   return `R$ ${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function normalizeShiftLabel(value = 'DIURNO') {
+  const raw = String(value || 'DIURNO').trim().toUpperCase();
+  return raw === 'NOTURNO' ? 'NOTURNO' : 'DIURNO';
+}
+
+function buildPublicShiftLabel(value = 'DIURNO') {
+  const shift = normalizeShiftLabel(value);
+  return shift === 'NOTURNO'
+    ? 'Turno: Noturno – Das 18h às 24h'
+    : 'Turno: Diurno – até 18h';
+}
+
+function applyNoStore(res) {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  return res;
 }
 
 function toIso(dateString, minutes) {
@@ -471,6 +491,228 @@ function generateBlockDates({ date, repeat_mode = 'none', repeat_until = null, r
   }
 
   return [...new Set(dates)];
+}
+
+const QUICK_BLOCK_PRESETS = Object.freeze({
+  day_full: { label: '📅 Dia Inteiro', category: 'Dia Inteiro', reason: 'Bloqueio de dia inteiro', start: '08:00', end: '23:00' },
+  morning: { label: '☀️ Manhã', category: 'Manhã', reason: 'Bloqueio manhã', start: '08:00', end: '12:00' },
+  afternoon: { label: '🌤️ Tarde', category: 'Tarde', reason: 'Bloqueio tarde', start: '12:00', end: '18:00' },
+  night: { label: '🌙 Noite', category: 'Noite', reason: 'Bloqueio noturno', start: '18:00', end: '23:00' },
+  vacation: { label: '🏖️ Férias', category: 'Férias', reason: 'Férias', start: '08:00', end: '23:00' },
+  holiday: { label: '🎉 Feriado', category: 'Feriado', reason: 'Feriado', start: '08:00', end: '23:00' },
+  business_meeting: { label: '🏢 Reunião Empresarial', category: 'Reunião Empresarial', reason: 'Reunião Empresarial', start: '14:00', end: '18:00' },
+  real_estate_visit: { label: '🏡 Visita Imobiliária', category: 'Visita Imobiliária', reason: 'Visita Imobiliária', start: '09:00', end: '12:00' },
+  displacement: { label: '🚗 Deslocamento', category: 'Deslocamento', reason: 'Deslocamento', start: '08:00', end: '10:00' },
+  travel: { label: '✈️ Viagem', category: 'Viagem', reason: 'Viagem', start: '08:00', end: '23:00' },
+  course: { label: '📚 Curso', category: 'Curso', reason: 'Curso', start: '18:00', end: '22:00' },
+  personal: { label: '🏥 Compromisso Pessoal', category: 'Compromisso Pessoal', reason: 'Compromisso Pessoal', start: '10:00', end: '12:00' },
+});
+
+const BLOCK_TURN_WINDOWS = Object.freeze({
+  DIURNO: { label: 'Diurno', start: '08:00', end: '18:00' },
+  NOTURNO: { label: 'Noturno', start: '18:00', end: '23:00' },
+  DIA_INTEIRO: { label: 'Dia Inteiro', start: '08:00', end: '23:00' },
+});
+
+function normalizeBlockTurn(value = '') {
+  const raw = String(value || '').trim().toUpperCase();
+  if (raw === 'NOTURNO') return 'NOTURNO';
+  if (raw === 'DIA_INTEIRO') return 'DIA_INTEIRO';
+  if (raw === 'DIURNO') return 'DIURNO';
+  return '';
+}
+
+function describeRepeatMode(mode = 'none') {
+  const labels = {
+    none: 'Não repetir',
+    daily: 'Todos os dias',
+    weekdays: 'Segunda a Sexta',
+    saturdays: 'Todos os Sábados',
+    sundays: 'Todos os Domingos',
+    weekly: 'Toda Semana',
+    monthly: 'Todo Mês',
+    vacation: 'Período de férias',
+    slots: 'Horários em massa',
+  };
+  return labels[mode] || 'Não repetir';
+}
+
+function buildContinuousDates(startDate, endDate) {
+  const dates = [];
+  const start = new Date(`${startDate}T12:00:00`);
+  const end = new Date(`${(endDate || startDate)}T12:00:00`);
+  for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+    dates.push(cursor.toISOString().slice(0, 10));
+  }
+  return dates;
+}
+
+function buildAdvancedBlockDates({ date, repeat_mode = 'none', repeat_until = null, end_date = null }) {
+  if (repeat_mode === 'none' || !repeat_until) return [date];
+  const dates = [];
+  const start = new Date(`${date}T12:00:00`);
+  const end = new Date(`${repeat_until}T12:00:00`);
+  for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+    const iso = cursor.toISOString().slice(0, 10);
+    const weekday = cursor.getDay();
+    if (repeat_mode === 'daily') dates.push(iso);
+    else if (repeat_mode === 'weekdays' && weekday >= 1 && weekday <= 5) dates.push(iso);
+    else if (repeat_mode === 'saturdays' && weekday === 6) dates.push(iso);
+    else if (repeat_mode === 'sundays' && weekday === 0) dates.push(iso);
+    else if (repeat_mode === 'weekly' && weekday === start.getDay()) dates.push(iso);
+    else if (repeat_mode === 'monthly' && cursor.getDate() === start.getDate()) dates.push(iso);
+  }
+  if (!dates.length && end_date) return buildContinuousDates(date, end_date);
+  return dates.length ? dates : [date];
+}
+
+function resolveBlockWindow(body = {}) {
+  const preset = QUICK_BLOCK_PRESETS[String(body.quick_preset || '').trim()] || null;
+  const turn = BLOCK_TURN_WINDOWS[normalizeBlockTurn(body.block_turn)] || null;
+  const start = turn?.start || preset?.start || body.start_time;
+  const end = turn?.end || preset?.end || body.end_time;
+  if (!start || !end) throw new Error('Informe o horário inicial e final do bloqueio.');
+  const startMinutes = parseTimeToMinutes(start);
+  const endMinutes = parseTimeToMinutes(end);
+  if (endMinutes <= startMinutes) throw new Error('A hora final deve ser maior que a hora inicial.');
+  return { start, end, startMinutes, endMinutes, preset, turn };
+}
+
+function resolveBlockDates(body = {}) {
+  const preset = QUICK_BLOCK_PRESETS[String(body.quick_preset || '').trim()] || null;
+  const normalizedCategory = String(body.category || preset?.category || '').trim().toLowerCase();
+  const normalizedPreset = String(body.quick_preset || '').trim().toLowerCase();
+  const usesContinuousRange = Boolean(body.end_date) && (
+    ['férias', 'feriado'].includes(normalizedCategory)
+    || ['vacation', 'holiday'].includes(normalizedPreset)
+  );
+  if (usesContinuousRange) {
+    return buildContinuousDates(body.date, body.end_date || body.date);
+  }
+  return buildAdvancedBlockDates(body);
+}
+
+function buildSlotRanges(selectedSlots = [], slotMinutes = 60) {
+  const duration = Math.max(15, Number(slotMinutes || 60));
+  return [...new Set((Array.isArray(selectedSlots) ? selectedSlots : []).map((item) => String(item || '').trim()).filter(Boolean))]
+    .map((time) => ({
+      start: time,
+      end: minutesToTime(parseTimeToMinutes(time) + duration),
+      startMinutes: parseTimeToMinutes(time),
+      endMinutes: parseTimeToMinutes(time) + duration,
+    }))
+    .filter((range) => range.endMinutes > range.startMinutes);
+}
+
+function buildBlockReason(body = {}, preset = null, turn = null) {
+  const category = String(body.category || preset?.category || 'Bloqueio').trim();
+  const reason = String(body.reason || preset?.reason || 'Bloqueio manual').trim();
+  return {
+    category,
+    reason,
+    display: `${category}: ${reason}`,
+    turnLabel: turn?.label || '',
+  };
+}
+
+function encodeBlockReasonMeta(meta = {}) {
+  const payload = {
+    category: meta.category || 'Bloqueio',
+    reason: meta.reason || 'Bloqueio manual',
+    display: meta.display || 'Bloqueio: Bloqueio manual',
+    repeatMode: meta.repeatMode || 'none',
+    label: meta.label || describeRepeatMode(meta.repeatMode || 'none'),
+    quickPreset: meta.quickPreset || null,
+    turn: meta.turn || null,
+    endDate: meta.endDate || null,
+    repeatUntil: meta.repeatUntil || null,
+    selectedSlots: Array.isArray(meta.selectedSlots) ? meta.selectedSlots : [],
+  };
+  return `[[MUNAY_META]]${JSON.stringify(payload)}[[/MUNAY_META]] ${payload.display}`;
+}
+
+function decodeBlockReasonMeta(value = '') {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^[[MUNAY_META]](.+?)[[/MUNAY_META]]s*(.*)$/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      return {
+        ...parsed,
+        display: parsed.display || match[2] || 'Bloqueio: Bloqueio manual',
+      };
+    } catch (_error) {}
+  }
+  if (!raw) {
+    return { category: 'Bloqueio', reason: 'Bloqueio manual', display: 'Bloqueio: Bloqueio manual', repeatMode: 'none', label: describeRepeatMode('none') };
+  }
+  const pieces = raw.split(':');
+  const category = pieces.length > 1 ? pieces.shift().trim() : 'Bloqueio';
+  const reason = pieces.length ? pieces.join(':').trim() : raw;
+  return {
+    category,
+    reason,
+    display: raw,
+    repeatMode: 'none',
+    label: describeRepeatMode('none'),
+    quickPreset: null,
+    turn: null,
+    endDate: null,
+    repeatUntil: null,
+    selectedSlots: [],
+  };
+}
+
+async function insertBlocksBatch(client, body = {}) {
+  const dates = resolveBlockDates(body);
+  const { preset, turn, startMinutes, endMinutes } = resolveBlockWindow(body);
+  const selectedRanges = buildSlotRanges(body.selected_slots, body.slot_minutes);
+  const ranges = selectedRanges.length ? selectedRanges : [{ startMinutes, endMinutes }];
+  const reasonPayload = buildBlockReason(body, preset, turn);
+  const repeatMode = dates.length > 1
+    ? ((String(body.category || preset?.category || '').trim().toLowerCase() === 'férias' || String(body.quick_preset || '').trim() === 'vacation') ? 'vacation' : 'range')
+    : (selectedRanges.length ? 'slots' : String(body.repeat_mode || 'none'));
+  const storedReason = encodeBlockReasonMeta({
+    category: reasonPayload.category,
+    reason: reasonPayload.reason,
+    display: reasonPayload.display,
+    repeatMode,
+    label: describeRepeatMode(repeatMode),
+    quickPreset: preset?.label || null,
+    turn: turn?.label || null,
+    endDate: body.end_date || null,
+    repeatUntil: body.repeat_until || null,
+    selectedSlots: Array.isArray(body.selected_slots) ? body.selected_slots : [],
+  });
+  const rows = [];
+  for (const date of dates) {
+    for (const range of ranges) {
+      const exists = await client.query(
+        `SELECT id FROM blocked_slots
+         WHERE block_date = $1 AND start_minutes = $2 AND end_minutes = $3
+         LIMIT 1`,
+        [date, range.startMinutes, range.endMinutes]
+      );
+      if (exists.rowCount) continue;
+      const inserted = await client.query(
+        `INSERT INTO blocked_slots (block_date, start_minutes, end_minutes, reason)
+         VALUES ($1,$2,$3,$4)
+         RETURNING *`,
+        [date, range.startMinutes, range.endMinutes, storedReason]
+      );
+      rows.push(inserted.rows[0]);
+    }
+  }
+  return rows;
+}
+
+function summarizeBlockDay(blocks = []) {
+  if (!blocks.length) return { status: 'free', label: 'Livre' };
+  const total = blocks.reduce((sum, item) => sum + Math.max(0, Number(item.end_minutes || 0) - Number(item.start_minutes || 0)), 0);
+  if (total >= 840 || blocks.some((item) => Number(item.start_minutes) <= 480 && Number(item.end_minutes) >= 1380)) {
+    return { status: 'blocked', label: 'Bloqueado' };
+  }
+  return { status: 'partial', label: 'Parcialmente ocupado' };
 }
 
 async function resolveClientRecord(client, { name, whatsapp, forceNewClient = false }) {
@@ -1331,14 +1573,19 @@ app.get('/api/public/settings', async (_req, res) => {
 
 app.get('/api/public/services', async (_req, res) => {
   const result = await query('SELECT * FROM services WHERE active = true ORDER BY sort_order, created_at');
-  res.json(result.rows);
+  const items = result.rows.map((item) => ({
+    ...item,
+    shift_label: normalizeShiftLabel(item.shift_label),
+    public_shift_label: buildPublicShiftLabel(item.shift_label),
+  }));
+  applyNoStore(res).json(items);
 });
 
 app.get('/api/public/availability', async (req, res) => {
   try {
     const { serviceId, date } = req.query;
     const availability = await computeAvailability(serviceId, date);
-    res.json(availability);
+    applyNoStore(res).json(availability);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -1399,7 +1646,7 @@ app.get('/api/public/month-availability', async (req, res) => {
       availability[date] = { available: slots.length > 0, slotCount: slots.length };
     }
 
-    res.json({ availability });
+    applyNoStore(res).json({ availability });
   } catch (error) {
     res.status(400).json({ error: error.message || 'Falha ao consultar disponibilidade do mês.' });
   }
@@ -1733,7 +1980,7 @@ app.delete('/api/admin/clients/:id', authRequired, async (req, res) => {
 
 app.get('/api/admin/services', authRequired, async (_req, res) => {
   const result = await query('SELECT * FROM services ORDER BY sort_order, created_at');
-  res.json(result.rows);
+  applyNoStore(res).json(result.rows.map((item) => ({ ...item, shift_label: normalizeShiftLabel(item.shift_label) })));
 });
 
 app.post('/api/admin/services', authRequired, async (req, res) => {
@@ -1753,9 +2000,9 @@ app.post('/api/admin/services', authRequired, async (req, res) => {
   try {
     const body = schema.parse(req.body);
     const result = await query(
-      `INSERT INTO services (name, description, duration_minutes, price_pix, price_card, price_installment, min_hour, max_hour, active, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [body.name, body.description, body.duration_minutes, body.price_pix, body.price_card, body.price_installment, body.min_hour, body.max_hour, body.active, body.sort_order]
+      `INSERT INTO services (name, description, duration_minutes, shift_label, price_pix, price_card, price_installment, min_hour, max_hour, active, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [body.name, body.description, body.duration_minutes, normalizeShiftLabel(body.shift_label), body.price_pix, body.price_card, body.price_installment, body.min_hour, body.max_hour, body.active, body.sort_order]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -1781,10 +2028,10 @@ app.put('/api/admin/services/:id', authRequired, async (req, res) => {
     const body = schema.parse(req.body);
     const result = await query(
       `UPDATE services SET
-          name=$1, description=$2, duration_minutes=$3, price_pix=$4, price_card=$5, price_installment=$6,
-          min_hour=$7, max_hour=$8, active=$9, sort_order=$10, updated_at=NOW()
-       WHERE id=$11 RETURNING *`,
-      [body.name, body.description, body.duration_minutes, body.price_pix, body.price_card, body.price_installment, body.min_hour, body.max_hour, body.active, body.sort_order, req.params.id]
+          name=$1, description=$2, duration_minutes=$3, shift_label=$4, price_pix=$5, price_card=$6, price_installment=$7,
+          min_hour=$8, max_hour=$9, active=$10, sort_order=$11, updated_at=NOW()
+       WHERE id=$12 RETURNING *`,
+      [body.name, body.description, body.duration_minutes, normalizeShiftLabel(body.shift_label), body.price_pix, body.price_card, body.price_installment, body.min_hour, body.max_hour, body.active, body.sort_order, req.params.id]
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -1799,41 +2046,123 @@ app.delete('/api/admin/services/:id', authRequired, async (req, res) => {
 
 app.get('/api/admin/blocks', authRequired, async (_req, res) => {
   const result = await query('SELECT * FROM blocked_slots ORDER BY block_date ASC, start_minutes ASC');
-  res.json(result.rows);
+  applyNoStore(res).json(result.rows.map((item) => {
+    const meta = decodeBlockReasonMeta(item.reason);
+    return {
+      ...item,
+      reason: meta.display,
+      display_reason: meta.display,
+      raw_reason: item.reason,
+      category: meta.category || 'Bloqueio',
+      repeat_meta: { mode: meta.repeatMode || 'none', label: meta.label || describeRepeatMode(meta.repeatMode || 'none') },
+      quick_preset: meta.quickPreset || null,
+      block_turn: meta.turn || null,
+    };
+  }));
+});
+
+app.get('/api/admin/blocks/calendar', authRequired, async (req, res) => {
+  const year = Number(req.query.year);
+  const month = Number(req.query.month);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return res.status(400).json({ error: 'Informe ano e mês válidos.' });
+  }
+  const totalDays = new Date(year, month, 0).getDate();
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+  const endDate = `${year}-${String(month).padStart(2, '0')}-${String(totalDays).padStart(2, '0')}`;
+  const result = await query('SELECT * FROM blocked_slots WHERE block_date BETWEEN $1 AND $2 ORDER BY block_date ASC, start_minutes ASC', [startDate, endDate]);
+  const grouped = result.rows.reduce((acc, item) => {
+    const key = toDateOnlyString(item.block_date);
+    acc[key] = acc[key] || [];
+    acc[key].push(item);
+    return acc;
+  }, {});
+  const calendar = {};
+  for (let day = 1; day <= totalDays; day += 1) {
+    const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const blocks = grouped[date] || [];
+    const summary = summarizeBlockDay(blocks);
+    calendar[date] = { ...summary, total: blocks.length };
+  }
+  applyNoStore(res).json({ calendar });
 });
 
 app.post('/api/admin/blocks', authRequired, async (req, res) => {
   const schema = z.object({
     date: z.string(),
-    start_time: z.string().regex(/^\d{2}:\d{2}$/),
-    end_time: z.string().regex(/^\d{2}:\d{2}$/),
-    reason: z.string().min(2),
+    end_date: z.string().optional().nullable(),
+    start_time: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
+    end_time: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
+    reason: z.string().optional().default('Bloqueio manual'),
     category: z.string().optional().default('Bloqueio'),
-    repeat_mode: z.enum(['none', 'daily', 'weekly', 'monthly']).optional().default('none'),
+    quick_preset: z.string().optional().nullable(),
+    block_turn: z.string().optional().nullable(),
+    repeat_mode: z.enum(['none', 'daily', 'weekdays', 'saturdays', 'sundays', 'weekly', 'monthly']).optional().default('none'),
     repeat_until: z.string().optional().nullable(),
-    repeat_count: z.number().int().min(1).max(365).optional().default(1),
+    selected_slots: z.array(z.string().regex(/^\d{2}:\d{2}$/)).optional().default([]),
+    slot_minutes: z.number().int().min(15).max(240).optional().default(60),
   });
   try {
     const body = schema.parse(req.body);
-    const startMinutes = parseTimeToMinutes(body.start_time);
-    const endMinutes = parseTimeToMinutes(body.end_time);
-    if (endMinutes <= startMinutes) {
-      return res.status(400).json({ error: 'A hora final deve ser maior que a hora inicial.' });
-    }
-    const dates = generateBlockDates(body);
     const created = await withTransaction(async (client) => {
-      const rows = [];
-      for (const date of dates) {
-        const inserted = await client.query(
-          'INSERT INTO blocked_slots (block_date, start_minutes, end_minutes, reason) VALUES ($1,$2,$3,$4) RETURNING *',
-          [date, startMinutes, endMinutes, `${body.category}: ${body.reason}`]
-        );
-        rows.push(inserted.rows[0]);
-      }
-      await writeSystemLog('info', 'blocks', 'Bloqueios criados pelo painel.', { total: rows.length, repeatMode: body.repeat_mode }, client);
+      const rows = await insertBlocksBatch(client, body);
+      await writeSystemLog('info', 'blocks', 'Bloqueios criados pelo painel.', { total: rows.length, repeatMode: body.repeat_mode, quickPreset: body.quick_preset || null }, client);
       return rows;
     });
     res.status(201).json({ success: true, created });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.put('/api/admin/blocks/:id', authRequired, async (req, res) => {
+  const schema = z.object({
+    date: z.string(),
+    start_time: z.string().regex(/^\d{2}:\d{2}$/),
+    end_time: z.string().regex(/^\d{2}:\d{2}$/),
+    reason: z.string().min(2),
+    category: z.string().min(2),
+    quick_preset: z.string().optional().nullable(),
+    block_turn: z.string().optional().nullable(),
+    repeat_mode: z.string().optional().default('none'),
+  });
+  try {
+    const body = schema.parse(req.body);
+    const { preset, turn, startMinutes, endMinutes } = resolveBlockWindow(body);
+    const reasonPayload = buildBlockReason(body, preset, turn);
+    const storedReason = encodeBlockReasonMeta({
+      category: reasonPayload.category,
+      reason: reasonPayload.reason,
+      display: reasonPayload.display,
+      repeatMode: body.repeat_mode || 'none',
+      label: describeRepeatMode(body.repeat_mode || 'none'),
+      quickPreset: preset?.label || null,
+      turn: turn?.label || null,
+    });
+    const result = await query(
+      `UPDATE blocked_slots
+       SET block_date = $1,
+           start_minutes = $2,
+           end_minutes = $3,
+           reason = $4
+       WHERE id = $5
+       RETURNING *`,
+      [body.date, startMinutes, endMinutes, storedReason, req.params.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'Bloqueio não encontrado.' });
+    const meta = decodeBlockReasonMeta(result.rows[0].reason);
+    res.json({ success: true, item: { ...result.rows[0], reason: meta.display, display_reason: meta.display, category: meta.category, repeat_meta: { mode: meta.repeatMode || 'none', label: meta.label || describeRepeatMode(meta.repeatMode || 'none') } } });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/blocks/bulk-delete', authRequired, async (req, res) => {
+  const schema = z.object({ ids: z.array(z.string().uuid()).min(1) });
+  try {
+    const body = schema.parse(req.body);
+    const result = await query('DELETE FROM blocked_slots WHERE id = ANY($1::uuid[]) RETURNING id', [body.ids]);
+    res.json({ success: true, deleted: result.rowCount });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

@@ -244,6 +244,26 @@ header p { font-size: 19px; color: var(--text2); margin-top: 0.8rem; }
 .price-row .lbl { color: var(--text2); }
 .price-row .val { color: var(--gold-light); font-weight: 600; }
 .price-row .val.main { font-size: 20px; font-family: 'Cormorant Garamond', serif; }
+.price-note { color: var(--text3); font-size: 13px; margin-top: 6px; }
+.loading-inline,
+.slots-error {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(17, 24, 39, 0.86);
+  color: var(--text2);
+}
+.slots-error { border-color: rgba(239, 68, 68, 0.35); color: #fecaca; }
+.cal-day.select-flash,
+.slot-btn.select-flash {
+  animation: dateFlash 0.28s ease;
+}
+@keyframes dateFlash {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.06); box-shadow: 0 0 0 1px rgba(245, 208, 111, 0.36), 0 0 20px rgba(245, 208, 111, 0.24); }
+  100% { transform: scale(1); }
+}
 
 .pay-opts { display: flex; gap: 12px; flex-wrap: wrap; }
 .pay-btn {

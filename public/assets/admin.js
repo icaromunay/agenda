@@ -1083,3 +1083,483 @@ $('clientModalDeleteButton').onclick = () => {
   if (!state.modalClientId) return;
   deleteClient(state.modalClientId).catch((error) => { $('clientModalStatus').textContent = error.message; });
 };
+
+
+(() => {
+  const BLOCK_PRESETS_UI = Object.freeze({
+    day_full: { label: '📅 Dia Inteiro', category: 'Dia Inteiro', reason: 'Bloqueio de dia inteiro', start: '08:00', end: '23:00' },
+    morning: { label: '☀️ Manhã', category: 'Manhã', reason: 'Bloqueio manhã', start: '08:00', end: '12:00' },
+    afternoon: { label: '🌤️ Tarde', category: 'Tarde', reason: 'Bloqueio tarde', start: '12:00', end: '18:00' },
+    night: { label: '🌙 Noite', category: 'Noite', reason: 'Bloqueio noturno', start: '18:00', end: '23:00' },
+    vacation: { label: '🏖️ Férias', category: 'Férias', reason: 'Férias', start: '08:00', end: '23:00' },
+    holiday: { label: '🎉 Feriado', category: 'Feriado', reason: 'Feriado', start: '08:00', end: '23:00' },
+    business_meeting: { label: '🏢 Reunião', category: 'Reunião Empresarial', reason: 'Reunião Empresarial', start: '14:00', end: '18:00' },
+    displacement: { label: '🚗 Deslocamento', category: 'Deslocamento', reason: 'Deslocamento', start: '08:00', end: '10:00' },
+  });
+
+  const TURN_WINDOWS_UI = Object.freeze({
+    DIURNO: { label: 'Diurno', start: '08:00', end: '18:00' },
+    NOTURNO: { label: 'Noturno', start: '18:00', end: '23:00' },
+    DIA_INTEIRO: { label: 'Dia Inteiro', start: '08:00', end: '23:00' },
+  });
+
+  const blockUiState = {
+    year: new Date().getFullYear(),
+    month: new Date().getMonth() + 1,
+    items: [],
+  };
+
+  function ensureBlocksModuleLayout() {
+    const view = $('view-blocks');
+    if (!view || view.dataset.enhancedBlocks === '1') return;
+    view.dataset.enhancedBlocks = '1';
+    view.innerHTML = `
+      <div class="blocks-layout">
+        <div class="panel premium-card blocks-quick-panel">
+          <div class="panel-head blocks-headline">
+            <div>
+              <h3>⚡ Bloqueio Rápido</h3>
+              <span class="panel-tip">Presets prontos, bloqueio por turno, feriados, repetição avançada e bloqueio em massa.</span>
+            </div>
+          </div>
+          <div class="preset-grid" id="blockPresetGrid"></div>
+          <div class="turn-grid" id="blockTurnGrid"></div>
+          <form id="blockForm" class="form-grid block-form-enhanced">
+            <input name="quick_preset" type="hidden" value="">
+            <input name="block_turn" type="hidden" value="">
+            <label class="stacked-field">
+              <span>Data inicial</span>
+              <input name="date" type="date" required>
+            </label>
+            <label class="stacked-field">
+              <span>Data final</span>
+              <input name="end_date" type="date">
+            </label>
+            <label class="stacked-field">
+              <span>Hora inicial</span>
+              <input name="start_time" type="time" required>
+            </label>
+            <label class="stacked-field">
+              <span>Hora final</span>
+              <input name="end_time" type="time" required>
+            </label>
+            <label class="stacked-field">
+              <span>Tipo</span>
+              <select name="category">
+                <option value="Bloqueio">Bloqueio</option>
+                <option value="Dia Inteiro">Dia Inteiro</option>
+                <option value="Manhã">Manhã</option>
+                <option value="Tarde">Tarde</option>
+                <option value="Noite">Noite</option>
+                <option value="Férias">Férias</option>
+                <option value="Feriado">Feriado</option>
+                <option value="Reunião Empresarial">Reunião Empresarial</option>
+                <option value="Deslocamento">Deslocamento</option>
+              </select>
+            </label>
+            <label class="stacked-field">
+              <span>Repetição</span>
+              <select name="repeat_mode">
+                <option value="none">Não repetir</option>
+                <option value="daily">Todos os dias</option>
+                <option value="weekdays">Segunda-Sexta</option>
+                <option value="saturdays">Todos os sábados</option>
+                <option value="sundays">Todos os domingos</option>
+                <option value="weekly">Toda semana</option>
+                <option value="monthly">Todo mês</option>
+              </select>
+            </label>
+            <label class="stacked-field form-span">
+              <span>Motivo</span>
+              <input name="reason" placeholder="Ex.: reunião externa, feriado municipal, férias, indisponibilidade pessoal" required>
+            </label>
+            <label class="stacked-field form-span">
+              <span>Repetir até</span>
+              <input name="repeat_until" type="date">
+            </label>
+            <div class="form-span blocks-mass-wrap">
+              <div class="panel-head compact-head">
+                <div>
+                  <strong>Bloqueio em massa por horário</strong>
+                  <p class="panel-tip">Selecione vários horários com um clique para bloquear janelas múltiplas no mesmo dia.</p>
+                </div>
+                <label class="stacked-field small-field">
+                  <span>Duração de cada bloco</span>
+                  <select name="slot_minutes">
+                    <option value="30">30 min</option>
+                    <option value="60" selected>60 min</option>
+                    <option value="90">90 min</option>
+                    <option value="120">120 min</option>
+                  </select>
+                </label>
+              </div>
+              <div class="mass-slots-grid" id="massSlotsGrid"></div>
+            </div>
+            <div class="form-span form-actions-inline">
+              <button type="submit" id="blockSubmitButton">Criar bloqueio</button>
+              <button type="button" class="ghost-btn" id="blockCancelEditButton">Cancelar edição</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="panel premium-card blocks-calendar-panel">
+          <div class="panel-head blocks-headline">
+            <div>
+              <h3>Calendário mensal de bloqueios</h3>
+              <span class="panel-tip">🟢 Livre · 🟡 Parcialmente ocupado · 🔴 Bloqueado</span>
+            </div>
+            <div class="calendar-nav-inline">
+              <button type="button" class="ghost-btn small" id="blockCalendarPrev">‹</button>
+              <strong id="blockCalendarLabel"></strong>
+              <button type="button" class="ghost-btn small" id="blockCalendarNext">›</button>
+            </div>
+          </div>
+          <div class="block-legend">
+            <span class="legend-chip free">🟢 Livre</span>
+            <span class="legend-chip partial">🟡 Parcialmente ocupado</span>
+            <span class="legend-chip blocked">🔴 Bloqueado</span>
+          </div>
+          <div id="blockCalendarGrid" class="block-calendar-grid"></div>
+        </div>
+
+        <div class="panel premium-card blocks-list-panel">
+          <div class="panel-head blocks-headline">
+            <div>
+              <h3>Bloqueios cadastrados</h3>
+              <span class="panel-tip">Edite, exclua ou apague vários registros selecionados de uma vez.</span>
+            </div>
+            <div class="bulk-actions-inline">
+              <button type="button" class="ghost-btn" id="blockDeleteSelectedButton">Excluir selecionados</button>
+            </div>
+          </div>
+          <div class="blocks-table-head">
+            <label class="select-all-wrap"><input type="checkbox" id="blocksSelectAll"> Todos</label>
+            <span>Data</span>
+            <span>Horário</span>
+            <span>Tipo</span>
+            <span>Motivo</span>
+            <span>Repetição</span>
+            <span>Ações</span>
+          </div>
+          <div id="blocksList" class="blocks-table-body"></div>
+        </div>
+      </div>`;
+  }
+
+  function renderPresetButtons() {
+    const grid = $('blockPresetGrid');
+    if (!grid) return;
+    grid.innerHTML = Object.entries(BLOCK_PRESETS_UI).map(([key, item]) => `
+      <button type="button" class="quick-preset-btn" data-preset-key="${key}">${item.label}</button>
+    `).join('');
+    const turnGrid = $('blockTurnGrid');
+    if (turnGrid) {
+      turnGrid.innerHTML = Object.entries(TURN_WINDOWS_UI).map(([key, item]) => `
+        <button type="button" class="turn-preset-btn" data-turn-key="${key}">Bloqueio por Turno: ${item.label} (${item.start}–${item.end})</button>
+      `).join('');
+    }
+  }
+
+  function renderMassSlots() {
+    const container = $('massSlotsGrid');
+    if (!container) return;
+    const slots = [];
+    for (let hour = 8; hour <= 22; hour += 1) {
+      slots.push(`${String(hour).padStart(2, '0')}:00`);
+    }
+    container.innerHTML = slots.map((time) => `<button type="button" class="mass-slot-chip" data-slot-time="${time}">${time}</button>`).join('');
+  }
+
+  function setActiveButtons(selector, value, attr) {
+    document.querySelectorAll(selector).forEach((button) => {
+      button.classList.toggle('active', button.dataset[attr] === value);
+    });
+  }
+
+  function applyQuickPreset(key) {
+    const preset = BLOCK_PRESETS_UI[key];
+    const form = $('blockForm');
+    if (!preset || !form) return;
+    form.elements.quick_preset.value = key;
+    form.elements.block_turn.value = '';
+    form.elements.category.value = preset.category;
+    form.elements.reason.value = preset.reason;
+    form.elements.start_time.value = preset.start;
+    form.elements.end_time.value = preset.end;
+    if ((key === 'vacation' || key === 'holiday') && !form.elements.end_date.value) {
+      form.elements.end_date.value = form.elements.date.value || '';
+    }
+    setActiveButtons('.quick-preset-btn', key, 'presetKey');
+    setActiveButtons('.turn-preset-btn', '', 'turnKey');
+  }
+
+  function applyTurnPreset(key) {
+    const turn = TURN_WINDOWS_UI[key];
+    const form = $('blockForm');
+    if (!turn || !form) return;
+    form.elements.block_turn.value = key;
+    form.elements.quick_preset.value = '';
+    form.elements.start_time.value = turn.start;
+    form.elements.end_time.value = turn.end;
+    form.elements.category.value = key === 'DIURNO' ? 'Diurno' : key === 'NOTURNO' ? 'Noturno' : 'Dia Inteiro';
+    form.elements.reason.value = `Bloqueio por turno ${turn.label.toLowerCase()}`;
+    setActiveButtons('.turn-preset-btn', key, 'turnKey');
+    setActiveButtons('.quick-preset-btn', '', 'presetKey');
+  }
+
+  function normalizeRepeatMode(mode) {
+    const allowed = ['none', 'daily', 'weekdays', 'saturdays', 'sundays', 'weekly', 'monthly'];
+    return allowed.includes(mode) ? mode : 'none';
+  }
+
+  function toggleMassSlot(button) {
+    if (!button) return;
+    button.classList.toggle('active');
+  }
+
+  function collectSelectedSlots() {
+    return Array.from(document.querySelectorAll('.mass-slot-chip.active')).map((button) => button.dataset.slotTime);
+  }
+
+  function clearSelectedSlots() {
+    document.querySelectorAll('.mass-slot-chip.active').forEach((button) => button.classList.remove('active'));
+  }
+
+  function resetBlockFormState() {
+    const form = $('blockForm');
+    if (!form) return;
+    form.reset();
+    form.dataset.editId = '';
+    form.elements.quick_preset.value = '';
+    form.elements.block_turn.value = '';
+    form.elements.slot_minutes.value = '60';
+    clearSelectedSlots();
+    setActiveButtons('.quick-preset-btn', '', 'presetKey');
+    setActiveButtons('.turn-preset-btn', '', 'turnKey');
+    $('blockSubmitButton').textContent = 'Criar bloqueio';
+  }
+
+  function bodyFromBlockForm(form) {
+    const body = {
+      date: form.elements.date.value,
+      end_date: form.elements.end_date.value || null,
+      start_time: form.elements.start_time.value,
+      end_time: form.elements.end_time.value,
+      category: form.elements.category.value,
+      reason: form.elements.reason.value,
+      quick_preset: form.elements.quick_preset.value || null,
+      block_turn: form.elements.block_turn.value || null,
+      repeat_mode: normalizeRepeatMode(form.elements.repeat_mode.value || 'none'),
+      repeat_until: form.elements.repeat_until.value || null,
+      selected_slots: collectSelectedSlots(),
+      slot_minutes: Number(form.elements.slot_minutes.value || 60),
+    };
+    if (body.selected_slots.length) {
+      body.start_time = body.selected_slots[0];
+      const startHour = Number(body.selected_slots[0].split(':')[0]);
+      const endHour = Math.min(startHour + Math.max(1, Math.round(body.slot_minutes / 60)), 23);
+      body.end_time = `${String(endHour).padStart(2, '0')}:00`;
+    }
+    return body;
+  }
+
+  function parseReasonText(item) {
+    const text = item.display_reason || item.reason || '';
+    const idx = text.indexOf(':');
+    return idx >= 0 ? text.slice(idx + 1).trim() : text;
+  }
+
+  function fillBlockForm(item) {
+    const form = $('blockForm');
+    if (!form) return;
+    form.dataset.editId = item.id;
+    form.elements.date.value = toDateInputValue(item.block_date);
+    form.elements.end_date.value = '';
+    form.elements.start_time.value = minutesToTime(item.start_minutes);
+    form.elements.end_time.value = minutesToTime(item.end_minutes);
+    form.elements.category.value = item.category || 'Bloqueio';
+    form.elements.reason.value = parseReasonText(item);
+    form.elements.repeat_mode.value = normalizeRepeatMode(item.repeat_meta?.mode || 'none');
+    form.elements.repeat_until.value = '';
+    form.elements.quick_preset.value = '';
+    form.elements.block_turn.value = '';
+    clearSelectedSlots();
+    setActiveButtons('.quick-preset-btn', '', 'presetKey');
+    setActiveButtons('.turn-preset-btn', '', 'turnKey');
+    $('blockSubmitButton').textContent = 'Salvar alterações';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function blockCalendarMonthLabel() {
+    return `${MONTHS_FULL[blockUiState.month - 1]} de ${blockUiState.year}`;
+  }
+
+  function renderBlockCalendar(calendar = {}) {
+    const label = $('blockCalendarLabel');
+    const grid = $('blockCalendarGrid');
+    if (!label || !grid) return;
+    label.textContent = blockCalendarMonthLabel();
+    const first = new Date(blockUiState.year, blockUiState.month - 1, 1).getDay();
+    const totalDays = new Date(blockUiState.year, blockUiState.month, 0).getDate();
+    let html = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((day) => `<div class="block-cal-dow">${day}</div>`).join('');
+    for (let i = 0; i < first; i += 1) html += '<div class="block-cal-day empty"></div>';
+    for (let day = 1; day <= totalDays; day += 1) {
+      const date = `${blockUiState.year}-${String(blockUiState.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const item = calendar[date] || { status: 'free', label: 'Livre', total: 0 };
+      html += `
+        <div class="block-cal-day ${item.status}">
+          <strong>${day}</strong>
+          <span>${item.label || 'Livre'}</span>
+          <small>${item.total || 0} bloco(s)</small>
+        </div>`;
+    }
+    grid.innerHTML = html;
+  }
+
+  async function loadBlockCalendar() {
+    ensureBlocksModuleLayout();
+    const data = await api(`/api/admin/blocks/calendar?year=${blockUiState.year}&month=${blockUiState.month}`);
+    renderBlockCalendar(data.calendar || {});
+  }
+
+  function renderBlocksTable(items = []) {
+    const container = $('blocksList');
+    if (!container) return;
+    if (!items.length) {
+      container.innerHTML = '<div class="item client-empty">Nenhum bloqueio cadastrado.</div>';
+      return;
+    }
+    container.innerHTML = items.map((item) => `
+      <div class="blocks-row" data-block-id="${esc(item.id)}">
+        <label class="row-check"><input type="checkbox" data-block-select="${esc(item.id)}"></label>
+        <div>${esc(fmtAppointmentDate(item.block_date))}</div>
+        <div>${esc(fmtTime(item.start_minutes))} às ${esc(fmtTime(item.end_minutes))}</div>
+        <div>${esc(item.category || 'Bloqueio')}</div>
+        <div>${esc(parseReasonText(item))}</div>
+        <div>${esc(item.repeat_meta?.label || 'Não repetir')}</div>
+        <div class="row-actions">
+          <button type="button" class="list-btn" data-edit-block="${esc(item.id)}">✏️</button>
+          <button type="button" class="list-btn danger" data-delete-block="${esc(item.id)}">🗑️</button>
+        </div>
+      </div>`).join('');
+  }
+
+  async function loadBlocks() {
+    ensureBlocksModuleLayout();
+    bindBlocksModule();
+    const data = await api('/api/admin/blocks');
+    blockUiState.items = Array.isArray(data) ? data : [];
+    renderBlocksTable(blockUiState.items);
+    await loadBlockCalendar();
+  }
+
+  async function deleteSelectedBlocks(ids) {
+    if (!ids.length) return;
+    if (!confirm(`Excluir ${ids.length} bloqueio(s) selecionado(s)?`)) return;
+    await api('/api/admin/blocks/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) });
+    await loadBlocks();
+  }
+
+  function selectedBlockIds() {
+    return Array.from(document.querySelectorAll('[data-block-select]:checked')).map((input) => input.dataset.blockSelect);
+  }
+
+  function bindBlocksModule() {
+    const view = $('view-blocks');
+    if (!view || view.dataset.blocksBound === '1') return;
+    view.dataset.blocksBound = '1';
+    renderPresetButtons();
+    renderMassSlots();
+
+    $('blockPresetGrid').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-preset-key]');
+      if (!button) return;
+      applyQuickPreset(button.dataset.presetKey);
+    });
+
+    $('blockTurnGrid').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-turn-key]');
+      if (!button) return;
+      applyTurnPreset(button.dataset.turnKey);
+    });
+
+    $('massSlotsGrid').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-slot-time]');
+      if (!button) return;
+      toggleMassSlot(button);
+    });
+
+    $('blockCalendarPrev').onclick = () => {
+      blockUiState.month -= 1;
+      if (blockUiState.month < 1) {
+        blockUiState.month = 12;
+        blockUiState.year -= 1;
+      }
+      loadBlockCalendar().catch((error) => alert(error.message));
+    };
+
+    $('blockCalendarNext').onclick = () => {
+      blockUiState.month += 1;
+      if (blockUiState.month > 12) {
+        blockUiState.month = 1;
+        blockUiState.year += 1;
+      }
+      loadBlockCalendar().catch((error) => alert(error.message));
+    };
+
+    $('blockCancelEditButton').onclick = () => resetBlockFormState();
+
+    $('blockDeleteSelectedButton').onclick = () => {
+      deleteSelectedBlocks(selectedBlockIds()).catch((error) => alert(error.message));
+    };
+
+    $('blocksSelectAll').addEventListener('change', (event) => {
+      document.querySelectorAll('[data-block-select]').forEach((input) => {
+        input.checked = event.target.checked;
+      });
+    });
+
+    $('blocksList').addEventListener('click', async (event) => {
+      const editButton = event.target.closest('[data-edit-block]');
+      if (editButton) {
+        const item = blockUiState.items.find((entry) => entry.id === editButton.dataset.editBlock);
+        if (item) fillBlockForm(item);
+        return;
+      }
+      const deleteButton = event.target.closest('[data-delete-block]');
+      if (deleteButton) {
+        if (!confirm('Excluir este bloqueio?')) return;
+        await api(`/api/admin/blocks/${deleteButton.dataset.deleteBlock}`, { method: 'DELETE' });
+        await loadBlocks();
+      }
+    });
+
+    $('blockForm').onsubmit = async (event) => {
+      event.preventDefault();
+      const form = event.target;
+      const body = bodyFromBlockForm(form);
+      const editId = form.dataset.editId;
+      if (editId) {
+        await api(`/api/admin/blocks/${editId}`, { method: 'PUT', body: JSON.stringify(body) });
+      } else {
+        const result = await api('/api/admin/blocks', { method: 'POST', body: JSON.stringify(body) });
+        alert(`${result.created.length} bloqueio(s) criado(s) com sucesso.`);
+      }
+      resetBlockFormState();
+      await loadBlocks();
+    };
+  }
+
+  const originalSetupQuickTimes = setupQuickTimes;
+  setupQuickTimes = function setupQuickTimesEnhanced() {
+    if (typeof originalSetupQuickTimes === 'function') {
+      try { originalSetupQuickTimes(); } catch (_error) {}
+    }
+    ensureBlocksModuleLayout();
+    bindBlocksModule();
+  };
+
+  window.loadBlocks = loadBlocks;
+})();
+
+loadBlocks = window.loadBlocks;

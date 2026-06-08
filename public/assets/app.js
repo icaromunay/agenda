@@ -11,38 +11,101 @@ const state = {
   year: new Date().getFullYear(),
   month: new Date().getMonth(),
   monthAvailability: {},
+  refreshTimer: null,
 };
 
+const SERVICE_REFRESH_INTERVAL = 15000;
+
 const paymentOptions = (service) => [
-  { id: 'pix', icon: '💠', label: 'PIX', value: `R$ ${Number(service.price_pix).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` },
-  { id: 'cartao', icon: '💳', label: 'Cartão', value: `R$ ${Number(service.price_card).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` },
-  { id: 'parcelado', icon: '📆', label: 'Parcelado', value: service.price_installment },
+  { id: 'pix', icon: '💠', label: 'PIX', value: `R$ ${Number(service.price_pix).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, note: `${service.duration_minutes} min` },
+  { id: 'cartao', icon: '💳', label: 'Cartão', value: `R$ ${Number(service.price_card).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, note: `${service.duration_minutes} min` },
+  { id: 'parcelado', icon: '📆', label: 'Parcelado', value: service.price_installment, note: `${service.duration_minutes} min` },
 ];
 
 function qs(id) { return document.getElementById(id); }
-function fmtDate(date) { const [y, m, d] = date.split('-'); return `${d}/${m}/${y}`; }
+function fmtDate(date) { const [y, m, d] = String(date).split('-'); return `${d}/${m}/${y}`; }
 function fmtTime(min) { return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`; }
 function range(slot) { return `${fmtTime(slot.startMinutes)} às ${fmtTime(slot.endMinutes)}`; }
+function money(value) { return `R$ ${Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`; }
+function publicShiftLabel(service) {
+  return service?.public_shift_label
+    || (String(service?.shift_label || '').trim().toUpperCase() === 'NOTURNO'
+      ? 'Turno: Noturno – Das 18h às 24h'
+      : 'Turno: Diurno – até 18h');
+}
 
 function monthAvailabilityKey() {
   return `${state.service?.id || 'none'}:${state.year}-${String(state.month + 1).padStart(2, '0')}`;
 }
 
-async function syncMonthAvailability() {
+async function api(url, options = {}) {
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    ...options,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Erro na operação.');
+  return data;
+}
+
+async function loadPublicData({ preserveSelection = true } = {}) {
+  const previousServiceId = preserveSelection ? state.service?.id : null;
+  const [settings, services] = await Promise.all([
+    api(`/api/public/settings?_=${Date.now()}`),
+    api(`/api/public/services?_=${Date.now()}`),
+  ]);
+  state.settings = settings;
+  state.services = Array.isArray(services) ? services : [];
+
+  if (previousServiceId) {
+    const updatedService = state.services.find((item) => item.id === previousServiceId);
+    if (updatedService) {
+      state.service = updatedService;
+    } else {
+      state.service = null;
+      state.payment = null;
+      state.date = null;
+      state.slot = null;
+    }
+  }
+}
+
+function startAutoRefresh() {
+  if (state.refreshTimer) clearInterval(state.refreshTimer);
+  state.refreshTimer = setInterval(async () => {
+    try {
+      await loadPublicData({ preserveSelection: true });
+      renderSettings();
+      renderServices();
+      renderPayments();
+      renderSummary();
+      if (state.service && state.payment) {
+        await syncMonthAvailability({ keepSlots: Boolean(state.date) });
+      }
+    } catch (_error) {
+      // atualização silenciosa para refletir mudanças do admin sem interromper o cliente
+    }
+  }, SERVICE_REFRESH_INTERVAL);
+}
+
+async function syncMonthAvailability({ keepSlots = false } = {}) {
   if (!(state.service && state.payment)) {
     renderCalendar();
+    if (!keepSlots) qs('slotsArea').innerHTML = '';
     return;
   }
   const key = monthAvailabilityKey();
   const year = state.year;
   const month = state.month + 1;
   try {
-    const data = await api(`/api/public/month-availability?serviceId=${state.service.id}&year=${year}&month=${month}`);
+    const data = await api(`/api/public/month-availability?serviceId=${state.service.id}&year=${year}&month=${month}&_=${Date.now()}`);
     state.monthAvailability[key] = data.availability || {};
   } catch (_error) {
     state.monthAvailability[key] = {};
   }
   renderCalendar();
+  if (!keepSlots && !state.date) qs('slotsArea').innerHTML = '';
 }
 
 function revealAndScrollSection(id) {
@@ -61,13 +124,6 @@ function step(n) {
   for (let i = 1; i <= 4; i += 1) {
     qs(`si${i}`).className = `step-item${i < n ? ' done' : i === n ? ' active' : ''}`;
   }
-}
-
-async function api(url, options = {}) {
-  const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...options });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Erro na operação.');
-  return data;
 }
 
 function renderSettings() {
@@ -97,60 +153,69 @@ function renderSettings() {
 }
 
 function renderServices() {
-  qs('servicesGrid').innerHTML = state.services.map((service) => {
-    const shift = (service.shift_label || '').trim() || 'DIURNO';
-    return `
+  qs('servicesGrid').innerHTML = state.services.map((service) => `
     <article class="service-card ${state.service?.id === service.id ? 'selected' : ''}" data-id="${service.id}">
       <div class="service-name">${service.name}</div>
+      <div class="service-shift">${publicShiftLabel(service)}</div>
       <div class="service-desc">${service.description || 'Atendimento terapêutico personalizado.'}</div>
       <div class="service-meta">
-        <div class="service-shift">Turno: ${shift}</div>
         <div class="service-duration">Duração da sessão: ${service.duration_minutes} min</div>
       </div>
       <div class="service-prices">
-        <div class="price-row"><span class="lbl">PIX</span><span class="val main">R$ ${Number(service.price_pix).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
-        <div class="price-row"><span class="lbl">Cartão</span><span class="val">R$ ${Number(service.price_card).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
+        <div class="price-row"><span class="lbl">PIX</span><span class="val main">${money(service.price_pix)}</span></div>
+        <div class="price-row"><span class="lbl">Cartão</span><span class="val">${money(service.price_card)}</span></div>
         <div class="price-row"><span class="lbl">Parcelado</span><span class="val">${service.price_installment}</span></div>
       </div>
-    </article>`;
-  }).join('');
+    </article>`).join('');
 
   document.querySelectorAll('.service-card').forEach((card) => {
-    card.onclick = () => {
-      state.service = state.services.find((service) => service.id === card.dataset.id);
+    card.onclick = async () => {
+      const nextService = state.services.find((service) => service.id === card.dataset.id);
+      if (!nextService) return;
+      state.service = nextService;
       state.payment = null;
       state.date = null;
       state.slot = null;
       card.classList.add('select-flash');
       renderServices();
       renderPayments();
+      renderCalendar();
+      qs('slotsArea').innerHTML = '';
       renderSummary();
       window.setTimeout(() => {
         step(2);
         revealAndScrollSection('sec2');
       }, 180);
-      window.setTimeout(() => card.classList.remove('select-flash'), 320);
     };
   });
 }
 
 function renderPayments() {
-  if (!state.service) return;
-  qs('payOptions').innerHTML = paymentOptions(state.service).map((option) => `
+  const container = qs('payOptions');
+  if (!state.service) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = paymentOptions(state.service).map((option) => `
     <button class="pay-btn ${state.payment === option.id ? 'sel' : ''}" type="button" data-id="${option.id}">
-      <span class="pi">${option.icon}</span><div class="plbl">${option.label}</div><div class="pv">${option.value}</div>
+      <span class="pi">${option.icon}</span>
+      <div class="plbl">${option.label}</div>
+      <div class="pv">${option.value}</div>
+      <div class="price-note">${option.note}</div>
     </button>`).join('');
+
   document.querySelectorAll('.pay-btn').forEach((button) => {
-    button.onclick = () => {
+    button.onclick = async () => {
       state.payment = button.dataset.id;
       state.date = null;
       state.slot = null;
       renderPayments();
-      renderCalendar();
-      syncMonthAvailability().catch(() => null);
       renderSummary();
+      qs('slotsArea').innerHTML = '<div class="loading-inline">Carregando datas disponíveis...</div>';
+      await syncMonthAvailability();
       step(3);
       revealAndScrollSection('sec3');
+      qs('slotsArea').innerHTML = '';
     };
   });
 }
@@ -169,41 +234,57 @@ function renderCalendar() {
     date.setHours(0, 0, 0, 0);
     const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     const past = date < today;
-    const futureInteractive = Boolean(state.service && state.payment) && !past;
+    const canInteract = Boolean(state.service && state.payment) && !past;
     const knownAvailable = Boolean(availability && availability[value]?.available);
     const className = past ? 'past' : knownAvailable ? 'avail' : 'off';
-    html += `<button class="cal-day ${className} ${state.date === value ? 'selday' : ''} ${date.getTime() === today.getTime() ? 'tod' : ''}" ${futureInteractive ? '' : 'disabled'} data-date="${value}">${day}</button>`;
+    html += `<button class="cal-day ${className} ${state.date === value ? 'selday' : ''} ${date.getTime() === today.getTime() ? 'tod' : ''}" ${canInteract ? '' : 'disabled'} data-date="${value}">${day}</button>`;
   }
   qs('calendarGrid').innerHTML = html;
+
   document.querySelectorAll('.cal-day:not(.empty):not(.past)').forEach((btn) => {
     btn.onclick = async () => {
+      if (!(state.service && state.payment)) return;
       state.date = btn.dataset.date;
       state.slot = null;
+      btn.classList.add('select-flash');
       renderCalendar();
+      qs('slotsArea').innerHTML = `<div class="loading-inline">Carregando horários de ${fmtDate(state.date)}...</div>`;
       await renderSlots();
       renderSummary();
     };
   });
-  qs('slotsArea').innerHTML = '';
 }
 
 async function renderSlots() {
-  if (!state.service || !state.date) return;
-  const data = await api(`/api/public/availability?serviceId=${state.service.id}&date=${state.date}`);
-  if (!data.slots.length) {
-    qs('slotsArea').innerHTML = '<div class="no-slots">Sem horários disponíveis para este dia.</div>';
+  if (!state.service || !state.date) {
+    qs('slotsArea').innerHTML = '';
     return;
   }
-  qs('slotsArea').innerHTML = `<div class="slots-lbl">${fmtDate(state.date)} — ${data.slots.length} horário(s) disponível(is)</div><div class="slots-grid">${data.slots.map((slot) => `<button class="slot-btn ${state.slot?.startMinutes === slot.startMinutes ? 'selslot' : ''}" type="button" data-start="${slot.startMinutes}" data-end="${slot.endMinutes}">${range(slot)}</button>`).join('')}</div>`;
-  document.querySelectorAll('.slot-btn').forEach((button) => {
-    button.onclick = () => {
-      state.slot = { startMinutes: Number(button.dataset.start), endMinutes: Number(button.dataset.end) };
-      renderSlots();
-      renderSummary();
-      step(4);
-      revealAndScrollSection('sec4');
-    };
-  });
+  try {
+    const data = await api(`/api/public/availability?serviceId=${state.service.id}&date=${state.date}&_=${Date.now()}`);
+    if (!Array.isArray(data.slots) || !data.slots.length) {
+      qs('slotsArea').innerHTML = '<div class="no-slots">Sem horários disponíveis para este dia.</div>';
+      return;
+    }
+    qs('slotsArea').innerHTML = `
+      <div class="slots-lbl">${fmtDate(state.date)} — ${data.slots.length} horário(s) disponível(is)</div>
+      <div class="slots-grid">${data.slots.map((slot) => `<button class="slot-btn ${state.slot?.startMinutes === slot.startMinutes ? 'selslot' : ''}" type="button" data-start="${slot.startMinutes}" data-end="${slot.endMinutes}">${range(slot)}</button>`).join('')}</div>`;
+
+    document.querySelectorAll('.slot-btn').forEach((button) => {
+      button.onclick = () => {
+        state.slot = { startMinutes: Number(button.dataset.start), endMinutes: Number(button.dataset.end) };
+        button.classList.add('select-flash');
+        renderSummary();
+        window.setTimeout(() => {
+          renderSlots().catch(() => null);
+          step(4);
+          revealAndScrollSection('sec4');
+        }, 150);
+      };
+    });
+  } catch (error) {
+    qs('slotsArea').innerHTML = `<div class="slots-error">Não foi possível atualizar os horários deste dia: ${error.message}</div>`;
+  }
 }
 
 function renderSummary() {
@@ -214,6 +295,8 @@ function renderSummary() {
   const payment = paymentOptions(state.service).find((item) => item.id === state.payment);
   qs('summaryBox').innerHTML = `
     <div class="srow"><span class="sk">Serviço</span><span class="sv">${state.service.name}</span></div>
+    <div class="srow"><span class="sk">Turno</span><span class="sv">${publicShiftLabel(state.service)}</span></div>
+    <div class="srow"><span class="sk">Duração</span><span class="sv">${state.service.duration_minutes} min</span></div>
     <div class="srow"><span class="sk">Data</span><span class="sv">${fmtDate(state.date)}</span></div>
     <div class="srow"><span class="sk">Horário</span><span class="sv">${range(state.slot)}</span></div>
     <div class="srow"><span class="sk">Pagamento</span><span class="sv">${payment.label}</span></div>
@@ -226,7 +309,7 @@ async function checkClientSilently() {
   const whatsapp = qs('clientWhatsapp').value.trim();
   if (!name || !whatsapp) return;
   try {
-    await api(`/api/public/client-check?name=${encodeURIComponent(name)}&whatsapp=${encodeURIComponent(whatsapp)}`);
+    await api(`/api/public/client-check?name=${encodeURIComponent(name)}&whatsapp=${encodeURIComponent(whatsapp)}&_=${Date.now()}`);
   } catch (_error) {
     // verificação silenciosa para evitar alertas visuais ao cliente
   }
@@ -267,22 +350,58 @@ async function submitAppointment() {
   }
 }
 
-async function init() {
-  const [settings, services] = await Promise.all([api('/api/public/settings'), api('/api/public/services')]);
-  state.settings = settings;
-  state.services = services;
-  renderSettings();
-  renderServices();
-  renderSummary();
-  renderCalendar();
+async function refreshOnVisibility() {
+  if (document.hidden) return;
+  try {
+    await loadPublicData({ preserveSelection: true });
+    renderSettings();
+    renderServices();
+    renderPayments();
+    renderSummary();
+    if (state.service && state.payment) {
+      await syncMonthAvailability({ keepSlots: true });
+      if (state.date) await renderSlots();
+    }
+  } catch (_error) {
+    // atualização silenciosa
+  }
 }
 
-qs('prevMonth').onclick = () => { state.month -= 1; if (state.month < 0) { state.month = 11; state.year -= 1; } renderCalendar(); syncMonthAvailability().catch(() => null); };
-qs('nextMonth').onclick = () => { state.month += 1; if (state.month > 11) { state.month = 0; state.year += 1; } renderCalendar(); syncMonthAvailability().catch(() => null); };
+async function init() {
+  await loadPublicData({ preserveSelection: false });
+  renderSettings();
+  renderServices();
+  renderPayments();
+  renderSummary();
+  renderCalendar();
+  startAutoRefresh();
+}
+
+qs('prevMonth').onclick = async () => {
+  state.month -= 1;
+  if (state.month < 0) {
+    state.month = 11;
+    state.year -= 1;
+  }
+  renderCalendar();
+  await syncMonthAvailability({ keepSlots: false });
+};
+
+qs('nextMonth').onclick = async () => {
+  state.month += 1;
+  if (state.month > 11) {
+    state.month = 0;
+    state.year += 1;
+  }
+  renderCalendar();
+  await syncMonthAvailability({ keepSlots: false });
+};
+
 qs('confirmButton').onclick = submitAppointment;
 qs('adminButton').onclick = () => { window.location.href = '/admin.html'; };
 qs('clientName').addEventListener('input', scheduleClientCheck);
 qs('clientWhatsapp').addEventListener('input', scheduleClientCheck);
+document.addEventListener('visibilitychange', () => { refreshOnVisibility().catch(() => null); });
 
 init().catch((error) => {
   console.error(error);
